@@ -34,20 +34,24 @@ class _PlaylistViewState extends State<PlaylistView> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
         border: Border(
           left: BorderSide(
-            color: Theme.of(context).dividerColor,
+            color: Colors.grey[900]!,
+            width: 1,
           ),
         ),
       ),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
+              color: const Color(0xFF252525),
               border: Border(
                 bottom: BorderSide(
-                  color: Theme.of(context).dividerColor,
+                  color: Colors.grey[900]!,
+                  width: 1,
                 ),
               ),
             ),
@@ -90,81 +94,88 @@ class _PlaylistViewState extends State<PlaylistView> {
                     final song = state.playlist[index];
                     final isPlaying = state.currentIndex == index;
                     
-                    return GestureDetector(
-                      onSecondaryTapUp: (details) {
-                        showMenu(
-                          context: context,
-                          position: RelativeRect.fromLTRB(
-                            details.globalPosition.dx,
-                            details.globalPosition.dy,
-                            details.globalPosition.dx + 1,
-                            details.globalPosition.dy + 1,
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isPlaying ? const Color(0xFF2A2A2A) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: GestureDetector(
+                        onSecondaryTapUp: (details) {
+                          showMenu(
+                            context: context,
+                            position: RelativeRect.fromLTRB(
+                              details.globalPosition.dx,
+                              details.globalPosition.dy,
+                              details.globalPosition.dx + 1,
+                              details.globalPosition.dy + 1,
+                            ),
+                            items: [
+                              PopupMenuItem(
+                                child: const Text('播放'),
+                                onTap: () {
+                                  Future.delayed(Duration.zero, () {
+                                    state.setCurrentSong(song);
+                                  });
+                                },
+                              ),
+                              PopupMenuItem(
+                                child: const Text('删除'),
+                                onTap: () {
+                                  Future.delayed(Duration.zero, () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('删除歌曲'),
+                                        content: const Text('确定要从磁盘中永久删除这首歌曲吗？此操作无法撤销。'),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('取消'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () async {
+                                              Navigator.pop(context);
+                                              final success = await state.removeSong(song);
+                                              if (!success) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('删除文件失败'),
+                                                    backgroundColor: Colors.red,
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                            child: const Text('删除', style: TextStyle(color: Colors.red)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  });
+                                },
+                              ),
+                            ],
+                          );
+                        },
+                        onDoubleTap: () {
+                          state.setCurrentSong(song);
+                        },
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: ListTile(
+                            title: Text(
+                              File(song).uri.pathSegments.last,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isPlaying
+                                    ? Colors.blue
+                                    : null,
+                              ),
+                            ),
+                            selected: isPlaying,
+                            onTap: null,
                           ),
-                          items: [
-                            PopupMenuItem(
-                              child: const Text('播放'),
-                              onTap: () {
-                                Future.delayed(Duration.zero, () {
-                                  state.setCurrentSong(song);
-                                });
-                              },
-                            ),
-                            PopupMenuItem(
-                              child: const Text('删除'),
-                              onTap: () {
-                                Future.delayed(Duration.zero, () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      title: const Text('删除歌曲'),
-                                      content: const Text('确定要从磁盘中永久删除这首歌曲吗？此操作无法撤销。'),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(context),
-                                          child: const Text('取消'),
-                                        ),
-                                        TextButton(
-                                          onPressed: () async {
-                                            Navigator.pop(context);
-                                            final success = await state.removeSong(song);
-                                            if (!success) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text('删除文件失败'),
-                                                  backgroundColor: Colors.red,
-                                                ),
-                                              );
-                                            }
-                                          },
-                                          child: const Text('删除', style: TextStyle(color: Colors.red)),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                });
-                              },
-                            ),
-                          ],
-                        );
-                      },
-                      onDoubleTap: () {
-                        state.setCurrentSong(song);
-                      },
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: ListTile(
-                          title: Text(
-                            File(song).uri.pathSegments.last,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isPlaying
-                                  ? Colors.blue
-                                  : null,
-                            ),
-                          ),
-                          selected: isPlaying,
-                          onTap: null,
                         ),
                       ),
                     );

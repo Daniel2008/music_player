@@ -428,10 +428,11 @@ class _MusicPlayerHomeState extends State<MusicPlayerHome> {
     final screenWidth = MediaQuery.of(context).size.width;
     
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: const Text('音乐播放器'),
+        elevation: 0,
+        backgroundColor: const Color(0xFF121212),
+        title: const Text('音乐播放器', style: TextStyle(fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
             icon: const Icon(Icons.folder_open),
@@ -449,19 +450,44 @@ class _MusicPlayerHomeState extends State<MusicPlayerHome> {
                   child: Consumer<MusicPlayerState>(
                     builder: (context, state, child) {
                       return state.currentSong != null
-                          ? Column(
+                          ? Stack(
                               children: [
-                                Expanded(
-                                  flex: 3,
-                                  child: AudioVisualizer(
-                                    isPlaying: _isPlaying,
+                                Positioned.fill(
+                                  child: Container(
+                                    margin: const EdgeInsets.all(16.0),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E1E1E),
+                                      borderRadius: BorderRadius.circular(20.0),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.3),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 5),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(20.0),
+                                      child: AudioVisualizer(
+                                        isPlaying: _isPlaying,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                Expanded(
-                                  flex: 2,
-                                  child: LyricsView(
-                                    currentSong: state.currentSong,
-                                    position: _position,
+                                Positioned(
+                                  bottom: 30,
+                                  left: 0,
+                                  right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.transparent,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: LyricsView(
+                                      currentSong: state.currentSong,
+                                      position: _position,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -476,10 +502,20 @@ class _MusicPlayerHomeState extends State<MusicPlayerHome> {
                   ),
                 ),
                 Container(
-                  color: Colors.black87,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E1E),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, -5),
+                      ),
+                    ],
+                  ),
                   padding: EdgeInsets.symmetric(
-                    horizontal: isPortrait ? 8 : 16,
-                    vertical: isPortrait ? 8 : 16,
+                    horizontal: isPortrait ? 16 : 24,
+                    vertical: isPortrait ? 16 : 24,
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -491,10 +527,10 @@ class _MusicPlayerHomeState extends State<MusicPlayerHome> {
                         onSeek: (duration) {
                           _audioPlayer.seek(duration);
                         },
-                        barHeight: isPortrait ? 3 : 4,
-                        baseBarColor: Colors.grey[800],
-                        progressBarColor: Colors.blue,
-                        thumbColor: Colors.blue,
+                        barHeight: isPortrait ? 4 : 6,
+                        baseBarColor: const Color(0xFF2A2A2A),
+                        progressBarColor: const Color(0xFF1DB954),
+                        thumbColor: const Color(0xFF1DB954),
                         timeLabelLocation: TimeLabelLocation.sides,
                         timeLabelTextStyle: const TextStyle(color: Colors.white54),
                       ),
@@ -516,10 +552,26 @@ class _MusicPlayerHomeState extends State<MusicPlayerHome> {
                             onPressed: _playPrevious,
                           ),
                           IconButton(
-                            icon: Icon(
-                              _isPlaying ? Icons.pause : Icons.play_arrow,
+                            icon: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1DB954),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF1DB954).withOpacity(0.3),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                _isPlaying ? Icons.pause : Icons.play_arrow,
+                                size: 32,
+                                color: Colors.white,
+                              ),
                             ),
-                            iconSize: 48,
+                            iconSize: 56,
                             color: Colors.white,
                             onPressed: () {
                               if (_isPlaying) {

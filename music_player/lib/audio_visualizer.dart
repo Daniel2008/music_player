@@ -17,6 +17,7 @@ enum VisualizerStyle {
   bars,
   wave,
   waveLine,
+  circularWave,
 }
 
 class _AudioVisualizerState extends State<AudioVisualizer>
@@ -32,6 +33,16 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   final List<double> _peakHeights = List.filled(100, 0.0);
   static const double spectrumDecayRate = 0.05;
   static const double peakDecayRate = 0.01;
+  
+  // 添加颜色方案相关变量
+  int _colorSchemeIndex = 0;
+  final List<List<Color>> _colorSchemes = [
+    [Colors.blue.shade400, Colors.blue.shade200],
+    [Colors.purple.shade400, Colors.purple.shade200],
+    [Colors.green.shade400, Colors.green.shade200],
+    [Colors.orange.shade400, Colors.orange.shade200],
+  ];
+  List<Color> get _currentColorScheme => _colorSchemes[_colorSchemeIndex];
 
   @override
   void initState() {
@@ -51,6 +62,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
                 break;
               case VisualizerStyle.waveLine:
                 _updateSpectrum();
+                break;
+              case VisualizerStyle.circularWave:
+                _updateCircularWave(); // 使用圆形波浪更新方法
                 break;
             }
           });
@@ -135,6 +149,23 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       }
     }
   }
+  
+  // 添加圆形波浪更新方法
+  void _updateCircularWave() {
+    _phase += 0.1;
+    for (int i = 0; i < _spectrumHeights.length; i++) {
+      double angle = 2 * pi * i / _spectrumHeights.length;
+      double value = 0.5 + 0.3 * sin(angle * 3 + _phase) * (1 + 0.2 * sin(angle * 7 - _phase * 1.2));
+      _spectrumHeights[i] = value.clamp(0.0, 1.0);
+      
+      // 更新峰值
+      if (_spectrumHeights[i] > _peakHeights[i]) {
+        _peakHeights[i] = _spectrumHeights[i] * 1.1;
+      } else {
+        _peakHeights[i] = max(0.0, _peakHeights[i] - peakDecayRate * 0.5);
+      }
+    }
+  }
 
   double sign(double x) {
     if (x > 0) return 1;
@@ -152,6 +183,17 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       children: [
         Container(
           padding: const EdgeInsets.all(16),
+          margin: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10.0,
+                spreadRadius: 2.0,
+              ),
+            ],
+          ),
           child: LayoutBuilder(
             builder: (context, constraints) {
               if (_currentStyle == VisualizerStyle.waveLine) {
@@ -160,6 +202,16 @@ class _AudioVisualizerState extends State<AudioVisualizer>
                   painter: WaveLineVisualizerPainter(
                     heights: _spectrumHeights,
                     peakHeights: _peakHeights,
+                    colorScheme: _currentColorScheme,
+                  ),
+                );
+              } else if (_currentStyle == VisualizerStyle.circularWave) {
+                return CustomPaint(
+                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                  painter: CircularWaveVisualizerPainter(
+                    heights: _spectrumHeights,
+                    peakHeights: _peakHeights,
+                    colorScheme: _currentColorScheme,
                   ),
                 );
               }
@@ -188,10 +240,7 @@ class _AudioVisualizerState extends State<AudioVisualizer>
                             gradient: LinearGradient(
                               begin: Alignment.bottomCenter,
                               end: Alignment.topCenter,
-                              colors: [
-                                Colors.blue.shade400,
-                                Colors.blue.shade200,
-                              ],
+                              colors: _currentColorScheme,
                             ),
                             borderRadius: BorderRadius.circular(barWidth / 2),
                           ),
@@ -207,27 +256,47 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         Positioned(
           top: 8,
           right: 8,
-          child: IconButton(
-            icon: Icon(
-              _getVisualizerIcon(),
-              color: Colors.white70,
-            ),
-            onPressed: () {
-              setState(() {
-                switch (_currentStyle) {
-                  case VisualizerStyle.bars:
-                    _currentStyle = VisualizerStyle.wave;
-                    break;
-                  case VisualizerStyle.wave:
-                    _currentStyle = VisualizerStyle.waveLine;
-                    break;
-                  case VisualizerStyle.waveLine:
-                    _currentStyle = VisualizerStyle.bars;
-                    break;
-                }
-              });
-            },
-            tooltip: '切换频谱样式',
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.color_lens,
+                  color: Colors.white70,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _colorSchemeIndex = (_colorSchemeIndex + 1) % _colorSchemes.length;
+                  });
+                },
+                tooltip: '切换颜色',
+              ),
+              IconButton(
+                icon: Icon(
+                  _getVisualizerIcon(),
+                  color: Colors.white70,
+                ),
+                onPressed: () {
+                  setState(() {
+                    switch (_currentStyle) {
+                      case VisualizerStyle.bars:
+                        _currentStyle = VisualizerStyle.wave;
+                        break;
+                      case VisualizerStyle.wave:
+                        _currentStyle = VisualizerStyle.waveLine;
+                        break;
+                      case VisualizerStyle.waveLine:
+                        _currentStyle = VisualizerStyle.circularWave;
+                        break;
+                      case VisualizerStyle.circularWave:
+                        _currentStyle = VisualizerStyle.bars;
+                        break;
+                    }
+                  });
+                },
+                tooltip: '切换频谱样式',
+              ),
+            ],
           ),
         ),
       ],
@@ -242,7 +311,12 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         return Icons.waves;
       case VisualizerStyle.waveLine:
         return Icons.show_chart;
+      case VisualizerStyle.circularWave:
+        return Icons.radio_button_checked;
     }
+    // 默认返回值，虽然在当前枚举处理完整的情况下不会执行到这里
+    // 但是添加默认返回值可以避免编译错误
+    return Icons.music_note;
   }
 
   @override
@@ -273,8 +347,13 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 class WaveLineVisualizerPainter extends CustomPainter {
   final List<double> heights;
   final List<double> peakHeights;
+  final List<Color> colorScheme;
 
-  WaveLineVisualizerPainter({required this.heights, required this.peakHeights});
+  WaveLineVisualizerPainter({
+    required this.heights, 
+    required this.peakHeights,
+    required this.colorScheme
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -285,8 +364,8 @@ class WaveLineVisualizerPainter extends CustomPainter {
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        Colors.blue.shade300,
-        Colors.blue.shade600,
+        colorScheme[0],
+        colorScheme[1],
       ],
     );
 
@@ -334,7 +413,7 @@ class WaveLineVisualizerPainter extends CustomPainter {
 
     // 绘制峰值线
     final peakPaint = Paint()
-      ..color = Colors.blue.shade200
+      ..color = colorScheme[1]
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
 
@@ -360,6 +439,97 @@ class WaveLineVisualizerPainter extends CustomPainter {
       mirrorPeakPath.lineTo(x, y);
     }
     canvas.drawPath(mirrorPeakPath, peakPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class CircularWaveVisualizerPainter extends CustomPainter {
+  final List<double> heights;
+  final List<double> peakHeights;
+  final List<Color> colorScheme;
+
+  CircularWaveVisualizerPainter({
+    required this.heights, 
+    required this.peakHeights,
+    required this.colorScheme
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = min(size.width, size.height) * 0.4;
+    
+    // 创建渐变
+    final gradient = RadialGradient(
+      colors: [
+        colorScheme[1],
+        colorScheme[0],
+      ],
+    );
+    
+    // 绘制圆形波浪
+    final wavePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    
+    // 绘制多个波浪圆
+    for (int j = 0; j < 3; j++) {
+      final path = Path();
+      final waveRadius = radius * (0.6 + j * 0.2);
+      
+      // 设置波浪圆的颜色
+      wavePaint.color = Color.lerp(colorScheme[0], colorScheme[1], j / 2) ?? colorScheme[0];
+      
+      path.moveTo(
+        center.dx + waveRadius * cos(0),
+        center.dy + waveRadius * sin(0)
+      );
+      
+      for (int i = 1; i <= heights.length; i++) {
+        final angle = 2 * pi * i / heights.length;
+        final waveHeight = heights[i % heights.length] * radius * 0.2;
+        final r = waveRadius + waveHeight;
+        
+        path.lineTo(
+          center.dx + r * cos(angle),
+          center.dy + r * sin(angle)
+        );
+      }
+      
+      canvas.drawPath(path, wavePaint);
+    }
+    
+    // 绘制中心圆
+    final centerPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..shader = gradient.createShader(Rect.fromCircle(
+        center: center,
+        radius: radius * 0.5,
+      ));
+    
+    canvas.drawCircle(center, radius * 0.5, centerPaint);
+    
+    // 绘制峰值点
+    final peakPaint = Paint()
+      ..color = colorScheme[1]
+      ..style = PaintingStyle.fill;
+    
+    for (int i = 0; i < peakHeights.length; i += 5) {
+      final angle = 2 * pi * i / peakHeights.length;
+      final peakHeight = peakHeights[i] * radius * 0.3;
+      final r = radius + peakHeight;
+      
+      canvas.drawCircle(
+        Offset(
+          center.dx + r * cos(angle),
+          center.dy + r * sin(angle)
+        ),
+        2.0,
+        peakPaint
+      );
+    }
   }
 
   @override
