@@ -46,6 +46,18 @@ class GdSearchTrack {
 
   String get artistText => artists.join(' / ');
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'artist': artists,
+      'album': album,
+      'pic_id': picId,
+      'lyric_id': lyricId,
+      'source': source,
+    };
+  }
+
   factory GdSearchTrack.fromJson(Map<String, dynamic> json) {
     final artistsRaw = json['artist'];
     final artists = <String>[];

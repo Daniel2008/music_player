@@ -26,7 +26,7 @@ class ThemeProvider extends ChangeNotifier {
     final scheme = ColorScheme.fromSeed(
       seedColor: primary,
       brightness: isDark ? Brightness.dark : Brightness.light,
-      background: background,
+      surface: background,
     );
     if (isDark) {
       darkTheme = ThemeData(colorScheme: scheme, useMaterial3: true);

@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
 
 class Controls extends StatelessWidget {
   const Controls({super.key});
@@ -16,12 +17,13 @@ class Controls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<PlayerProvider>();
-    final pos = p.position.inMilliseconds;
-    final dur = max(1, p.duration.inMilliseconds);
+    final playerProvider = context.watch<PlayerProvider>();
+    final playlistProvider = context.watch<PlaylistProvider>();
+    final pos = playerProvider.position.inMilliseconds;
+    final dur = max(1, playerProvider.duration.inMilliseconds);
     final progress = (pos / dur).clamp(0.0, 1.0);
 
-    final currentTitle = p.playlist.current?.title ?? '未选择歌曲';
+    final currentTitle = playlistProvider.current?.title ?? '未选择歌曲';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -34,19 +36,19 @@ class Controls extends StatelessWidget {
         const SizedBox(height: 8),
         Row(
           children: [
-            SizedBox(width: 52, child: Text(_fmt(p.position))),
+            SizedBox(width: 52, child: Text(_fmt(playerProvider.position))),
             Expanded(
               child: Slider(
                 value: progress,
                 onChanged: (v) {
                   final seekMs = (v * dur).toInt();
-                  p.seek(Duration(milliseconds: seekMs));
+                  playerProvider.seek(Duration(milliseconds: seekMs));
                 },
               ),
             ),
             SizedBox(
               width: 52,
-              child: Text(_fmt(p.duration), textAlign: TextAlign.end),
+              child: Text(_fmt(playerProvider.duration), textAlign: TextAlign.end),
             ),
           ],
         ),
@@ -55,24 +57,34 @@ class Controls extends StatelessWidget {
           children: [
             IconButton(
               tooltip: '上一首',
-              onPressed: p.previous,
+              onPressed: () async {
+                playlistProvider.previous();
+                if (playlistProvider.current != null) {
+                  await playerProvider.playTrack(playlistProvider.current!);
+                }
+              },
               icon: const Icon(Icons.skip_previous),
             ),
             IconButton(
-              tooltip: p.isPlaying ? '暂停' : '播放',
-              onPressed: p.isPlaying ? p.pause : p.play,
-              icon: Icon(p.isPlaying ? Icons.pause : Icons.play_arrow),
+              tooltip: playerProvider.isPlaying ? '暂停' : '播放',
+              onPressed: playerProvider.isPlaying ? playerProvider.pause : playerProvider.play,
+              icon: Icon(playerProvider.isPlaying ? Icons.pause : Icons.play_arrow),
             ),
             IconButton(
               tooltip: '下一首',
-              onPressed: p.next,
+              onPressed: () async {
+                playlistProvider.next();
+                if (playlistProvider.current != null) {
+                  await playerProvider.playTrack(playlistProvider.current!);
+                }
+              },
               icon: const Icon(Icons.skip_next),
             ),
             const Spacer(),
             const Icon(Icons.volume_up),
             SizedBox(
               width: 160,
-              child: Slider(value: p.volume, onChanged: (v) => p.setVolume(v)),
+              child: Slider(value: playerProvider.volume, onChanged: (v) => playerProvider.setVolume(v)),
             ),
           ],
         ),

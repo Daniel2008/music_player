@@ -28,7 +28,7 @@ class HomePage extends StatelessWidget {
             final theme = context.watch<ThemeProvider>();
             final dividerColor =
                 (theme.mode == ThemeMode.dark ? Colors.white : Colors.black87)
-                    .withOpacity(0.08);
+                    .withValues(alpha: 0.08);
 
             Widget section({required Widget child, double elevation = 1}) {
               return Card(

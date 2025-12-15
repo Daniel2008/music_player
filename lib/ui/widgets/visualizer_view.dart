@@ -162,7 +162,7 @@ class _VisualizerViewState extends State<VisualizerView>
                       levels: _levels,
                       style: _style,
                       color: scheme.primary,
-                      faintColor: scheme.primary.withOpacity(0.18),
+                      faintColor: scheme.primary.withValues(alpha: 0.18),
                     ),
                   ),
                 ),
@@ -348,7 +348,7 @@ class _SpectrumPainter extends CustomPainter {
         final t = isOn ? (r / (rows - 1)).clamp(0.0, 1.0) : 0.0;
         paint.color = isOn
             ? (Color.lerp(faintColor, color, 0.35 + 0.65 * t) ?? color)
-            : faintColor.withOpacity(0.10);
+            : faintColor.withValues(alpha: 0.10);
 
         final cx = x + colWidth / 2;
         final cy = size.height - (r + 0.5) * stepY;

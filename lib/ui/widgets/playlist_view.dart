@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
+import '../../providers/search_provider.dart';
 import '../../services/gd_music_api.dart';
 
 class PlaylistView extends StatefulWidget {
@@ -42,7 +44,8 @@ class _PlaylistViewState extends State<PlaylistView> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<PlayerProvider>();
+    final searchProvider = context.watch<SearchProvider>();
+    final playlistProvider = context.watch<PlaylistProvider>();
     final query = _controller.text.trim();
     final showingSearch = query.isNotEmpty;
 
@@ -63,7 +66,8 @@ class _PlaylistViewState extends State<PlaylistView> {
                         border: OutlineInputBorder(),
                         hintText: '在线搜索（GD 音乐台）',
                       ),
-                      onSubmitted: (v) => p.searchOnline(v, source: _source),
+                      onSubmitted: (v) =>
+                          searchProvider.searchOnline(v, source: _source),
                     ),
                   ),
                 ],
@@ -101,7 +105,10 @@ class _PlaylistViewState extends State<PlaylistView> {
                         if (v == null || v == _source) return;
                         setState(() => _source = v);
                         if (showingSearch) {
-                          p.searchOnline(_controller.text, source: _source);
+                          searchProvider.searchOnline(
+                            _controller.text,
+                            source: _source,
+                          );
                         }
                       },
                     ),
@@ -137,11 +144,13 @@ class _PlaylistViewState extends State<PlaylistView> {
                   ),
                   IconButton(
                     tooltip: '搜索',
-                    onPressed: p.isSearching
+                    onPressed: searchProvider.isSearching
                         ? null
-                        : () =>
-                              p.searchOnline(_controller.text, source: _source),
-                    icon: p.isSearching
+                        : () => searchProvider.searchOnline(
+                            _controller.text,
+                            source: _source,
+                          ),
+                    icon: searchProvider.isSearching
                         ? const SizedBox(
                             width: 20,
                             height: 20,
@@ -150,7 +159,7 @@ class _PlaylistViewState extends State<PlaylistView> {
                         : const Icon(Icons.search),
                   ),
                   FilledButton.tonalIcon(
-                    onPressed: p.addFiles,
+                    onPressed: playlistProvider.addFiles,
                     icon: const Icon(Icons.library_music),
                     label: const Text('添加本地'),
                   ),
@@ -159,7 +168,7 @@ class _PlaylistViewState extends State<PlaylistView> {
                       tooltip: '清空',
                       onPressed: () {
                         _controller.clear();
-                        p.searchOnline('');
+                        searchProvider.searchOnline('');
                         setState(() {});
                       },
                       icon: const Icon(Icons.clear),
@@ -169,11 +178,11 @@ class _PlaylistViewState extends State<PlaylistView> {
             ],
           ),
         ),
-        if (showingSearch && p.searchError != null)
+        if (showingSearch && searchProvider.searchError != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
             child: Text(
-              p.searchError!,
+              searchProvider.searchError!,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
@@ -181,7 +190,7 @@ class _PlaylistViewState extends State<PlaylistView> {
           ),
         Expanded(
           child: showingSearch
-              ? _SearchResultsList(items: p.searchResults, br: _br)
+              ? _SearchResultsList(items: searchProvider.searchResults, br: _br)
               : _PlaylistList(),
         ),
       ],
@@ -192,21 +201,63 @@ class _PlaylistViewState extends State<PlaylistView> {
 class _PlaylistList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<PlayerProvider>();
-    final items = p.playlist.tracks;
-    final current = p.playlist.current;
+    final playlistProvider = context.watch<PlaylistProvider>();
+    final playerProvider = context.watch<PlayerProvider>();
+    final items = playlistProvider.playlist.tracks;
+    final current = playlistProvider.current;
+    final scheme = Theme.of(context).colorScheme;
+
     return ListView.separated(
       itemCount: items.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (context, index) => Divider(
+        height: 1,
+        color: scheme.outlineVariant.withValues(alpha: 0.2),
+        indent: 16,
+        endIndent: 16,
+      ),
       itemBuilder: (context, index) {
         final t = items[index];
         final selected = current?.id == t.id;
         return ListTile(
           selected: selected,
-          title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.3),
+          selectedColor: scheme.primary,
+          leading: Text(
+            '${index + 1}',
+            style: TextStyle(
+              color: selected ? scheme.primary : scheme.outline,
+              fontSize: 12,
+            ),
+          ),
+          title: Text(
+            t.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+          subtitle: Text(
+            (t.artist?.isNotEmpty ?? false) ? t.artist! : '未知艺术家',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.8)
+                  : scheme.outline,
+            ),
+          ),
+          trailing: IconButton(
+            icon: Icon(Icons.close, size: 18, color: scheme.outline),
+            onPressed: () => playlistProvider.removeTrack(index),
+            tooltip: '移除',
+          ),
           onTap: () {
-            p.playlist.currentIndex = index;
-            p.playCurrent();
+            playlistProvider.setCurrentIndex(index);
+            if (playlistProvider.current != null) {
+              playerProvider.playTrack(playlistProvider.current!);
+            }
           },
         );
       },
@@ -222,28 +273,49 @@ class _SearchResultsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.read<PlayerProvider>();
+    final playerProvider = context.read<PlayerProvider>();
+    final scheme = Theme.of(context).colorScheme;
+
     return ListView.separated(
       itemCount: items.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (context, index) => Divider(
+        height: 1,
+        color: scheme.outlineVariant.withValues(alpha: 0.2),
+        indent: 16,
+        endIndent: 16,
+      ),
       itemBuilder: (context, index) {
         final t = items[index];
         final subtitleParts = <String>[];
         if (t.artistText.isNotEmpty) subtitleParts.add(t.artistText);
         if (t.album.isNotEmpty) subtitleParts.add(t.album);
         subtitleParts.add(t.source);
+
         return ListTile(
           title: Text(t.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(
             subtitleParts.join(' · '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: scheme.outline),
           ),
-          trailing: const Icon(Icons.play_arrow),
+          trailing: IconButton(
+            icon: Icon(Icons.play_circle_outline, color: scheme.primary),
+            onPressed: () async {
+              final ok = await playerProvider.resolveAndPlayTrackUrl(t, br: br);
+              if (!ok && context.mounted) {
+                final msg = playerProvider.playError ?? '播放失败';
+                ScaffoldMessenger.of(context)
+                  ..clearSnackBars()
+                  ..showSnackBar(SnackBar(content: Text(msg)));
+              }
+            },
+          ),
           onTap: () async {
-            final ok = await p.playSearchResult(t, br: br);
+            // 点击也能播放
+            final ok = await playerProvider.resolveAndPlayTrackUrl(t, br: br);
             if (!ok && context.mounted) {
-              final msg = p.playError ?? '播放失败';
+              final msg = playerProvider.playError ?? '播放失败';
               ScaffoldMessenger.of(context)
                 ..clearSnackBars()
                 ..showSnackBar(SnackBar(content: Text(msg)));

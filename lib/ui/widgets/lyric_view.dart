@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
 import '../../utils/lrc_parser.dart';
 import '../../models/track.dart';
 
@@ -16,6 +17,7 @@ class LyricView extends StatefulWidget {
 class _LyricViewState extends State<LyricView> {
   List<LrcLine> lines = [];
   PlayerProvider? _player;
+  PlaylistProvider? _playlist;
   String? _lastTrackId;
   int? _lastLyricRevision;
   final List<GlobalKey> _lineKeys = [];
@@ -27,6 +29,7 @@ class _LyricViewState extends State<LyricView> {
     _player?.removeListener(_onPlayerChanged);
     _player = context.read<PlayerProvider>();
     _player?.addListener(_onPlayerChanged);
+    _playlist = context.read<PlaylistProvider>();
     _lastLyricRevision = _player?.lyricRevision;
     _loadForCurrent();
   }
@@ -40,7 +43,7 @@ class _LyricViewState extends State<LyricView> {
 
     if (lines.isEmpty) {
       // 如果当前播放的是本地歌曲，提供在线搜索歌词的入口
-      final current = _player?.playlist.current;
+      final current = _playlist?.current;
       final isLocal = current != null && !current.isRemote;
       return Center(
         child: Column(
@@ -55,10 +58,12 @@ class _LyricViewState extends State<LyricView> {
                 onPressed: () async {
                   final t = current;
                   final path = await _player!.fetchOnlineLyricForLocal(t);
-                  if (path != null && mounted) {
+                  if (!context.mounted) return;
+
+                  if (path != null) {
                     // 触发 reload
                     setState(() {});
-                  } else if (mounted) {
+                  } else {
                     ScaffoldMessenger.of(
                       context,
                     ).showSnackBar(const SnackBar(content: Text('未找到在线歌词')));
@@ -102,15 +107,18 @@ class _LyricViewState extends State<LyricView> {
         }
         return Container(
           key: _lineKeys[i],
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-          child: Text(
-            lines[i].text,
-            textAlign: TextAlign.center,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 24),
+          child: AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 200),
             style: TextStyle(
-              fontSize: isActive ? 18 : 14,
+              fontSize: isActive ? 20 : 16,
               fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-              color: isActive ? scheme.primary : scheme.outline,
+              color: isActive
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant.withValues(alpha: 0.6),
+              height: 1.5,
             ),
+            child: Text(lines[i].text, textAlign: TextAlign.center),
           ),
         );
       },
@@ -128,7 +136,7 @@ class _LyricViewState extends State<LyricView> {
   }
 
   void _onPlayerChanged() {
-    final current = _player?.playlist.current;
+    final current = _playlist?.current;
     final rev = _player?.lyricRevision;
     final trackChanged = current?.id != _lastTrackId;
     final lyricChanged = rev != _lastLyricRevision;
@@ -139,7 +147,7 @@ class _LyricViewState extends State<LyricView> {
   }
 
   Future<void> _loadForCurrent() async {
-    final t = _player?.playlist.current;
+    final t = _playlist?.current;
     if (t == null) return;
     _lastTrackId = t.id;
     final file = File(await _lyricPathFor(t));

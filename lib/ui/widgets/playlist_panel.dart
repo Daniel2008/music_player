@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
 
 /// 简化版播放列表面板，用于 PlayerPage
 class PlaylistPanel extends StatelessWidget {
@@ -8,9 +9,10 @@ class PlaylistPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<PlayerProvider>();
-    final tracks = p.playlist.tracks;
-    final current = p.playlist.current;
+    final playlistProvider = context.watch<PlaylistProvider>();
+    final playerProvider = context.watch<PlayerProvider>();
+    final tracks = playlistProvider.playlist.tracks;
+    final current = playlistProvider.current;
     final scheme = Theme.of(context).colorScheme;
 
     if (tracks.isEmpty) {
@@ -21,7 +23,7 @@ class PlaylistPanel extends StatelessWidget {
             Icon(
               Icons.queue_music,
               size: 48,
-              color: scheme.outline.withOpacity(0.5),
+              color: scheme.outline.withValues(alpha: 0.5),
             ),
             const SizedBox(height: 12),
             Text('播放列表为空', style: TextStyle(color: scheme.outline)),
@@ -30,13 +32,13 @@ class PlaylistPanel extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 FilledButton.tonalIcon(
-                  onPressed: p.addFiles,
+                  onPressed: playlistProvider.addFiles,
                   icon: const Icon(Icons.audio_file),
                   label: const Text('添加文件'),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.tonalIcon(
-                  onPressed: p.addFolder,
+                  onPressed: playlistProvider.addFolder,
                   icon: const Icon(Icons.folder_open),
                   label: const Text('添加文件夹'),
                 ),
@@ -63,8 +65,8 @@ class PlaylistPanel extends StatelessWidget {
                 icon: const Icon(Icons.add, size: 20),
                 tooltip: '添加音乐',
                 onSelected: (v) {
-                  if (v == 'files') p.addFiles();
-                  if (v == 'folder') p.addFolder();
+                  if (v == 'files') playlistProvider.addFiles();
+                  if (v == 'folder') playlistProvider.addFolder();
                 },
                 itemBuilder: (context) => const [
                   PopupMenuItem(
@@ -93,7 +95,7 @@ class PlaylistPanel extends StatelessWidget {
                 icon: const Icon(Icons.delete_outline, size: 20),
                 tooltip: '清空列表',
                 visualDensity: VisualDensity.compact,
-                onPressed: () => _confirmClear(context, p),
+                onPressed: () => _confirmClear(context, playlistProvider),
               ),
             ],
           ),
@@ -108,7 +110,16 @@ class PlaylistPanel extends StatelessWidget {
               return ListTile(
                 dense: true,
                 selected: isPlaying,
-                selectedTileColor: scheme.primaryContainer.withOpacity(0.3),
+                selectedTileColor: scheme.primaryContainer.withValues(
+                  alpha: 0.3,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 0,
+                ),
                 leading: isPlaying
                     ? Icon(Icons.play_arrow, color: scheme.primary, size: 20)
                     : Text(
@@ -128,11 +139,13 @@ class PlaylistPanel extends StatelessWidget {
                   icon: Icon(Icons.close, size: 16, color: scheme.outline),
                   visualDensity: VisualDensity.compact,
                   tooltip: '移除',
-                  onPressed: () => p.removeTrack(index),
+                  onPressed: () => playlistProvider.removeTrack(index),
                 ),
                 onTap: () {
-                  p.playlist.currentIndex = index;
-                  p.playCurrent();
+                  playlistProvider.setCurrentIndex(index);
+                  if (playlistProvider.current != null) {
+                    playerProvider.playTrack(playlistProvider.current!);
+                  }
                 },
               );
             },
@@ -142,7 +155,7 @@ class PlaylistPanel extends StatelessWidget {
     );
   }
 
-  void _confirmClear(BuildContext context, PlayerProvider p) {
+  void _confirmClear(BuildContext context, PlaylistProvider playlistProvider) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -155,7 +168,7 @@ class PlaylistPanel extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () {
-              p.clearPlaylist();
+              playlistProvider.clear();
               Navigator.pop(context);
             },
             child: const Text('确定'),

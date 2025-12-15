@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/favorites_provider.dart';
 import '../../services/gd_music_api.dart';
 
 class FavoritesPage extends StatefulWidget {
@@ -22,9 +23,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<PlayerProvider>();
+    final favoritesProvider = context.watch<FavoritesProvider>();
     final scheme = Theme.of(context).colorScheme;
-    final favorites = p.favorites.favorites;
+    final favorites = favoritesProvider.favorites;
 
     return Column(
       children: [
@@ -34,7 +35,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow,
             border: Border(
-              bottom: BorderSide(color: scheme.outlineVariant.withOpacity(0.3)),
+              bottom: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.3),
+              ),
             ),
           ),
           child: Row(
@@ -87,7 +90,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                       Icon(
                         Icons.favorite_border,
                         size: 64,
-                        color: scheme.outline.withOpacity(0.5),
+                        color: scheme.outline.withValues(alpha: 0.5),
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -133,12 +136,13 @@ class _FavoriteItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.read<PlayerProvider>();
+    final playerProvider = context.read<PlayerProvider>();
+    final favoritesProvider = context.read<FavoritesProvider>();
     final scheme = Theme.of(context).colorScheme;
 
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: Colors.red.withOpacity(0.1),
+        backgroundColor: Colors.red.withValues(alpha: 0.1),
         child: const Icon(Icons.music_note, color: Colors.red),
       ),
       title: Text(
@@ -163,7 +167,7 @@ class _FavoriteItem extends StatelessWidget {
             icon: const Icon(Icons.favorite, color: Colors.red),
             tooltip: '取消收藏',
             onPressed: () async {
-              await p.toggleFavorite(track);
+              await favoritesProvider.toggleFavorite(track);
             },
           ),
           IconButton(
@@ -171,12 +175,12 @@ class _FavoriteItem extends StatelessWidget {
             tooltip: '播放',
             color: scheme.primary,
             onPressed: () async {
-              final ok = await p.playSearchResult(track, br: quality);
+              final ok = await playerProvider.resolveAndPlayTrackUrl(track, br: quality);
               if (!ok && context.mounted) {
                 ScaffoldMessenger.of(context)
                   ..clearSnackBars()
                   ..showSnackBar(
-                    SnackBar(content: Text(p.playError ?? '播放失败')),
+                    SnackBar(content: Text(playerProvider.playError ?? '播放失败')),
                   );
               }
             },
