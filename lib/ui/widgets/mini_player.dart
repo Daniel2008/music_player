@@ -4,8 +4,23 @@ import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
 
 /// 固定在底部的迷你播放控制栏
-class MiniPlayer extends StatelessWidget {
+class MiniPlayer extends StatefulWidget {
   const MiniPlayer({super.key});
+
+  @override
+  State<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<MiniPlayer> {
+  double? _dragValue;
+
+  String _fmt(Duration d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+  }
 
   String _fmt(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -23,6 +38,7 @@ class MiniPlayer extends StatelessWidget {
     final pos = p.position.inMilliseconds;
     final dur = max(1, p.duration.inMilliseconds);
     final progress = (pos / dur).clamp(0.0, 1.0);
+    final sliderValue = _dragValue ?? progress;
 
     return Container(
       decoration: BoxDecoration(
@@ -40,11 +56,23 @@ class MiniPlayer extends StatelessWidget {
         children: [
           // 进度条
           SizedBox(
-            height: 4,
-            child: LinearProgressIndicator(
-              value: progress,
-              backgroundColor: scheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation(scheme.primary),
+            height: 24,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 4,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+              ),
+              child: Slider(
+                value: sliderValue,
+                onChanged: (v) => setState(() => _dragValue = v),
+                onChangeEnd: (v) {
+                  setState(() => _dragValue = null);
+                  p.seek(Duration(milliseconds: (v * dur).round()));
+                },
+                activeColor: scheme.primary,
+                inactiveColor: scheme.surfaceContainerHighest,
+              ),
             ),
           ),
           Padding(

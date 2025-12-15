@@ -206,6 +206,8 @@ class PlayerProvider extends ChangeNotifier {
       final track = Track(
         title: title,
         path: url.url,
+        artist: displayArtist.isEmpty ? null : displayArtist,
+        artUri: _gdApi.buildCoverUrl(item.picId, item.source),
         kind: TrackKind.remote,
         remoteSource: item.source,
         remoteTrackId: item.id,

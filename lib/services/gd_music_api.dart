@@ -113,6 +113,42 @@ class GdMusicApiClient {
     : baseUri = baseUri ?? Uri.parse('https://music-api.gdstudio.xyz/api.php'),
       _client = client ?? http.Client();
 
+  /// Build a best-effort cover image URL from [picId] and [source].
+  /// The backend may expose a picture endpoint; construct a URL under the same
+  /// origin to request the picture resource. Returns null if [picId] is null.
+  String? buildCoverUrl(String? picId, String source) {
+    if (picId == null || picId.isEmpty) return null;
+    try {
+      // Try backend-provided picture endpoint first
+      final origin = Uri.parse(baseUri.toString()).origin;
+      final backendPic = Uri.parse(origin)
+          .replace(
+            path: '/pic',
+            queryParameters: {'id': picId, 'source': source},
+          )
+          .toString();
+
+      // Common public fallbacks by source
+      final src = source.toLowerCase();
+      if (src.contains('qq')) {
+        // QQ music common format
+        return 'https://y.gtimg.cn/music/photo_new/T002R300x300M000$picId.jpg';
+      }
+      if (src.contains('netease') || src.contains('163')) {
+        // Netease album art endpoint
+        return 'https://music.163.com/api/img/album?id=$picId';
+      }
+      if (src.contains('kuwo')) {
+        // Kuwo common image host (best-effort)
+        return 'https://img1.kuwo.cn/star/$picId';
+      }
+
+      return backendPic;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<GdSearchTrack>> search({
     required String keyword,
     String source = 'netease',

@@ -6,6 +6,8 @@ class Track {
   final String id;
   final String title;
   final String path;
+  final String? artist;
+  final String? artUri;
   final Duration? duration;
 
   /// `local`: `path` is a local filesystem path.
@@ -21,6 +23,8 @@ class Track {
   Track({
     required this.title,
     required this.path,
+    this.artist,
+    this.artUri,
     this.duration,
     this.kind = TrackKind.local,
     this.remoteSource,
