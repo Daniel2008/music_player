@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:provider/provider.dart';
@@ -108,7 +109,7 @@ class _VisualizerViewState extends State<VisualizerView>
 
   VisualizerStyle _style = VisualizerStyle.bars;
 
-  // 缓存播放状态，避免每帧访问 Provider
+  // 缓存播放状态
   bool _isPlaying = false;
   // 缓存是否真正在播放音频（位置在持续变化）
   bool _hasAudio = false;
@@ -128,9 +129,6 @@ class _VisualizerViewState extends State<VisualizerView>
   double _currentBPM = 128.0;
   double _targetBPM = 128.0;
   double _bpmChangeTimer = 0.0;
-
-  // 能量累积
-  double _globalEnergy = 0.0;
 
   // 粒子系统
   final List<_Particle> _particles = [];
@@ -152,13 +150,6 @@ class _VisualizerViewState extends State<VisualizerView>
     _controller.addListener(_tick);
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // 监听播放状态变化
-    _isPlaying = context.read<PlayerProvider>().isPlaying;
-  }
-
   void _ensureBars(int n) {
     if (_barCount == n) return;
     _barCount = n;
@@ -171,123 +162,77 @@ class _VisualizerViewState extends State<VisualizerView>
     );
   }
 
-  void _updatePlayingState(
-    bool isPlaying,
-    Duration position,
-    Duration duration,
-  ) {
+  void _updateFromFFT(Float32List fftData, bool isPlaying) {
     _isPlaying = isPlaying;
 
-    final now = DateTime.now();
+    if (fftData.isEmpty || _barCount == 0) return;
 
-    // 检测位置是否在变化（真正在播放）
-    if (position != _lastPosition && position > Duration.zero) {
-      _lastPosition = position;
-      _lastPositionChangeTime = now;
+    // 检查是否有有效的 FFT 数据（不全是0）
+    bool hasData = false;
+    for (var i = 0; i < fftData.length && i < 50; i++) {
+      if (fftData[i] > 0.01) {
+        hasData = true;
+        break;
+      }
     }
 
-    // 判断是否真正在播放：
-    // 1. isPlaying 为 true
-    // 2. 有时长（已加载音频）
-    // 3. 位置在最近 500ms 内有变化（说明音频正在播放）
-    final timeSinceLastChange = now.difference(_lastPositionChangeTime);
-    _hasAudio =
-        isPlaying &&
-        duration > Duration.zero &&
-        position > Duration.zero &&
-        timeSinceLastChange.inMilliseconds < 500;
+    if (!hasData || !isPlaying) {
+      // 没有有效数据时，缓慢衰减
+      for (var i = 0; i < _barCount; i++) {
+        _targets[i] = (_targets[i] * 0.9).clamp(0.0, 1.0);
+      }
+      _beatIntensity = (_beatIntensity * 0.9).clamp(0.0, 1.0);
+      return;
+    }
+
+    // 将 FFT 数据映射到柱子数量
+    final fftLength = fftData.length;
+    for (var i = 0; i < _barCount; i++) {
+      // 使用对数映射，让低频部分有更多的柱子
+      final logIndex = (math.pow(i / _barCount, 1.5) * fftLength * 0.5).toInt();
+      final safeIndex = logIndex.clamp(0, fftLength - 1);
+
+      // 取相邻几个频率的平均值，让显示更平滑
+      double sum = 0;
+      int count = 0;
+      for (var j = -2; j <= 2; j++) {
+        final idx = (safeIndex + j).clamp(0, fftLength - 1);
+        sum += fftData[idx];
+        count++;
+      }
+      final value = sum / count;
+
+      // 应用增益和限幅（降低增益使频谱能量更适中）
+      _targets[i] = value.clamp(0.0, 1.0);
+    }
+
+    // 计算节拍强度（使用低频能量）
+    double bassEnergy = 0;
+    final bassRange = (fftLength * 0.1).toInt().clamp(1, fftLength);
+    for (var i = 0; i < bassRange; i++) {
+      bassEnergy += fftData[i];
+    }
+    _beatIntensity = (bassEnergy / bassRange * 1).clamp(0.0, 1.0);
   }
 
   void _tick() {
     if (!mounted || _barCount == 0) return;
 
     final dt = 0.016;
+    _waveOffset += dt * 2.0;
 
-    // 只有在真正播放且有音频时才跳动
-    if (_isPlaying && _hasAudio) {
-      // 快速 BPM (240-320)，极快节奏
-      _bpmChangeTimer += dt;
-      if (_bpmChangeTimer > 1.0) {
-        _bpmChangeTimer = 0;
-        _targetBPM = 240 + _rng.nextDouble() * 80;
-      }
-      _currentBPM += (_targetBPM - _currentBPM) * dt * 5.0;
-
-      // 主节拍
-      final beatSpeed = _currentBPM / 60.0 * 2 * math.pi;
-      _beatPhase += dt * beatSpeed;
-      if (_beatPhase > 2 * math.pi) {
-        _beatPhase -= 2 * math.pi;
-        _beatCounter++;
-        // 基础能量设为0，只依赖节拍
-      }
-
-      // 副节拍（极快）
-      _subBeatPhase += dt * beatSpeed * 4.0;
-      if (_subBeatPhase > 2 * math.pi) _subBeatPhase -= 2 * math.pi;
-
-      // 小节相位
-      _measurePhase += dt * beatSpeed / 4;
-      if (_measurePhase > 2 * math.pi) _measurePhase -= 2 * math.pi;
-
-      // 波浪偏移（极快）
-      _waveOffset += dt * 12.0;
-
-      // 节拍脉冲（更尖锐，响应更快）
-      final beatPulse = math
-          .pow((math.sin(_beatPhase) * 0.5 + 0.5), 0.4)
-          .toDouble();
-      final subBeatPulse =
-          math.pow((math.sin(_subBeatPhase) * 0.5 + 0.5), 0.4).toDouble() *
-          0.35;
-      _beatIntensity = (beatPulse * 0.6 + subBeatPulse).clamp(0.0, 1.0);
-
-      // 节拍类型
-      final beatInMeasure = _beatCounter % 4;
-      final isDownbeat = beatInMeasure == 0;
-
-      for (var i = 0; i < _barCount; i++) {
-        final pos = i / (_barCount - 1);
-
-        // 基础能量为0，完全由节拍驱动（大幅降低）
-        double energy = _beatIntensity * 0.6;
-
-        // 波浪效果（降低幅度）
-        final wave1 = math.sin(_waveOffset + pos * math.pi * 6) * 0.12;
-        final wave2 = math.sin(_waveOffset * 2.0 + pos * math.pi * 3) * 0.08;
-        energy += wave1 + wave2;
-
-        // 强拍时全体提升（降低）
-        if (isDownbeat) {
-          energy += 0.1;
-        }
-
-        // 副节拍脉冲（降低）
-        energy += subBeatPulse * 0.08;
-
-        // 相邻柱子的关联（产生波动感）
-        if (i > 0 && i < _barCount - 1) {
-          final neighborEffect =
-              (_targets[i - 1] + _targets[math.min(i + 1, _barCount - 1)]) *
-              0.05;
-          energy += neighborEffect;
-        }
-
-        _targets[i] = energy.clamp(0.0, 1.0);
-      }
-
-      _updateParticles(dt, isDownbeat);
+    if (_isPlaying) {
+      // 使用真实 FFT 数据时，粒子效果基于节拍强度
+      final isStrongBeat = _beatIntensity > 0.6;
+      _updateParticles(dt, isStrongBeat);
     } else {
       // 暂停时的呼吸效果
-      _beatPhase += dt * 0.8;
-      _waveOffset += dt * 0.5;
-
       for (var i = 0; i < _barCount; i++) {
         final pos = i / (_barCount - 1);
         final breath =
-            0.08 +
-            0.05 * math.sin(_beatPhase + pos * math.pi * 2) +
-            0.03 * math.sin(_waveOffset * 2 + pos * math.pi * 4);
+            0.05 +
+            0.03 * math.sin(_waveOffset + pos * math.pi * 2) +
+            0.02 * math.sin(_waveOffset * 1.5 + pos * math.pi * 4);
         _targets[i] = breath.clamp(0.0, 1.0);
       }
 
@@ -297,21 +242,21 @@ class _VisualizerViewState extends State<VisualizerView>
       }
     }
 
-    // === 快速响应的跟随 ===
+    // === 平滑跟随 ===
     for (var i = 0; i < _barCount; i++) {
       final current = _levels[i];
       final target = _targets[i];
       final diff = target - current;
 
-      // 上升瞬间，下降快速，极度灵敏
-      final factor = diff > 0 ? 0.95 : 0.6;
+      // 上升快，下降稍慢（让频谱看起来更自然）
+      final factor = diff > 0 ? 0.5 : 0.25;
       _levels[i] = (current + diff * factor).clamp(0.0, 1.0);
 
       // 更新峰值
       if (_levels[i] > _peaks[i]) {
         _peaks[i] = _levels[i];
       } else {
-        _peaks[i] = math.max(0, _peaks[i] - dt * 1.2);
+        _peaks[i] = math.max(0, _peaks[i] - dt * 0.8);
       }
     }
 
@@ -362,12 +307,12 @@ class _VisualizerViewState extends State<VisualizerView>
     }
 
     // 根据能量和节拍动态计算生成数量
-    int spawnCount = (avgLevel * 3).round();
+    int spawnCount = (avgLevel * 3).toInt();
     if (isStrongBeat) {
-      spawnCount += (bassLevel * 12).round(); // 强拍时根据低频能量爆发
+      spawnCount += (bassLevel * 12).toInt(); // 强拍时根据低频能量爆发
     }
-    if (_globalEnergy > 0.5) {
-      spawnCount += (_globalEnergy * 6).round();
+    if (_beatIntensity > 0.5) {
+      spawnCount += (_beatIntensity * 6).toInt();
     }
 
     // 限制粒子总数
@@ -426,14 +371,10 @@ class _VisualizerViewState extends State<VisualizerView>
 
   @override
   Widget build(BuildContext context) {
-    // 在 build 中更新播放状态，而不是在 _tick 中
+    // 获取真实的 FFT 数据
     final playerProvider = context.watch<PlayerProvider>();
-    // 检查是否真正在播放：isPlaying 且有时长且位置在变化
-    _updatePlayingState(
-      playerProvider.isPlaying,
-      playerProvider.position,
-      playerProvider.duration,
-    );
+    final fftData = playerProvider.fftData;
+    _updateFromFFT(fftData, playerProvider.isPlaying);
 
     final scheme = Theme.of(context).colorScheme;
     final currentStyle = widget.fixedStyle ?? _style;

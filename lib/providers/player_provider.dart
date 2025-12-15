@@ -1,15 +1,21 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:audioplayers/audioplayers.dart';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
 import '../services/gd_music_api.dart';
 import 'playlist_provider.dart';
 
 class PlayerProvider extends ChangeNotifier {
-  final AudioPlayer _player = AudioPlayer();
+  final SoLoud _soloud = SoLoud.instance;
   final GdMusicApiClient _gdApi = GdMusicApiClient();
+
+  AudioSource? _currentSource;
+  SoundHandle? _currentHandle;
+  Timer? _positionTimer;
+  AudioData? _audioData;
 
   /// 播放完成回调，用于自动下一曲
   VoidCallback? onTrackComplete;
@@ -41,44 +47,120 @@ class PlayerProvider extends ChangeNotifier {
   // 正在搜索歌词的曲目 ID 集合（防止重复搜索）
   final Set<String> _fetchingLyricIds = {};
 
+  // FFT 数据（用于频谱可视化）
+  Float32List fftData = Float32List(256);
+  Float32List waveData = Float32List(256);
+
+  // 是否已初始化
+  bool _initialized = false;
+
   PlayerProvider() {
     _init();
   }
 
   Future<void> _init() async {
-    _player.setVolume(volume);
-    _player.onPositionChanged.listen((d) {
-      position = d;
+    try {
+      await _soloud.init();
+      _soloud.setVisualizationEnabled(true);
+      _soloud.setFftSmoothing(0.8);
+      _audioData = AudioData(GetSamplesKind.linear);
+      _initialized = true;
       notifyListeners();
-    });
-    _player.onDurationChanged.listen((d) {
-      duration = d;
-      notifyListeners();
-    });
-    _player.onPlayerStateChanged.listen((s) {
-      isPlaying = s == PlayerState.playing;
-      notifyListeners();
-    });
-    _player.onPlayerComplete.listen((_) {
-      _handleComplete();
-    });
+    } catch (e) {
+      debugPrint('SoLoud 初始化失败: $e');
+    }
+  }
+
+  /// 更新 FFT 和波形数据
+  void _updateAudioData() {
+    if (!_initialized || _audioData == null || !isPlaying) {
+      fftData = Float32List(256);
+      waveData = Float32List(256);
+      return;
+    }
+
+    try {
+      _audioData!.updateSamples();
+      final samples = _audioData!.getAudioData();
+      if (samples.length >= 512) {
+        fftData = samples.sublist(0, 256);
+        waveData = samples.sublist(256, 512);
+      }
+    } catch (e) {
+      // 忽略错误
+    }
   }
 
   Future<void> playTrack(Track track) async {
-    await _player.stop();
-    if (track.isRemote) {
-      await _player.setSource(UrlSource(track.path));
-      await _player.resume();
-      unawaited(_ensureLyricCachedFor(track));
-    } else {
-      final path = await _resolveSourcePath(track.path);
-      await _player.setSource(DeviceFileSource(path));
-      await _player.resume();
-      // 自动为本地歌曲搜索在线歌词
-      if (autoFetchLyricForLocal) {
-        unawaited(_autoFetchLyricForLocalTrack(track));
-      }
+    if (!_initialized) {
+      await _init();
     }
+
+    await stop();
+
+    try {
+      if (track.isRemote) {
+        // 远程 URL
+        _currentSource = await _soloud.loadUrl(track.path);
+      } else {
+        // 本地文件
+        final path = await _resolveSourcePath(track.path);
+        _currentSource = await _soloud.loadFile(path);
+      }
+
+      if (_currentSource != null) {
+        _currentHandle = await _soloud.play(_currentSource!);
+        _soloud.setVolume(_currentHandle!, volume);
+
+        // 获取时长
+        duration = _soloud.getLength(_currentSource!);
+        isPlaying = true;
+        position = Duration.zero;
+        playError = null;
+
+        // 启动位置更新定时器
+        _startPositionTimer();
+
+        notifyListeners();
+
+        // 处理歌词
+        if (track.isRemote) {
+          unawaited(_ensureLyricCachedFor(track));
+        } else if (autoFetchLyricForLocal) {
+          unawaited(_autoFetchLyricForLocalTrack(track));
+        }
+      }
+    } catch (e) {
+      playError = '播放失败: $e';
+      isPlaying = false;
+      notifyListeners();
+    }
+  }
+
+  void _startPositionTimer() {
+    _positionTimer?.cancel();
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (_currentHandle != null && isPlaying) {
+        try {
+          // 检查句柄是否有效
+          if (!_soloud.getIsValidVoiceHandle(_currentHandle!)) {
+            // 播放完成
+            _handleComplete();
+            return;
+          }
+
+          final pos = _soloud.getPosition(_currentHandle!);
+          position = pos;
+
+          // 更新 FFT 数据
+          _updateAudioData();
+
+          notifyListeners();
+        } catch (e) {
+          // 忽略错误
+        }
+      }
+    });
   }
 
   Future<String> _resolveSourcePath(String path) async {
@@ -86,10 +168,6 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   /// 解析并播放在线曲目
-  ///
-  /// [item] 搜索结果中的曲目
-  /// [br] 音质
-  /// [playlistProvider] 如果提供，会更新播放列表中当前曲目的 URL
   Future<bool> resolveAndPlayTrackUrl(
     GdSearchTrack item, {
     String br = '999',
@@ -124,8 +202,7 @@ class PlayerProvider extends ChangeNotifier {
             playlistProvider.currentIndex,
             updatedTrack,
           );
-          // 直接播放，使用更新后的 track
-          await _playTrackDirectly(updatedTrack);
+          await playTrack(updatedTrack);
           return true;
         }
       }
@@ -153,20 +230,6 @@ class PlayerProvider extends ChangeNotifier {
     } finally {
       isResolvingUrl = false;
       notifyListeners();
-    }
-  }
-
-  /// 直接播放 Track（内部方法，不创建新 Track）
-  Future<void> _playTrackDirectly(Track track) async {
-    await _player.stop();
-    if (track.isRemote) {
-      await _player.setSource(UrlSource(track.path));
-      await _player.resume();
-      unawaited(_ensureLyricCachedFor(track));
-    } else {
-      final path = await _resolveSourcePath(track.path);
-      await _player.setSource(DeviceFileSource(path));
-      await _player.resume();
     }
   }
 
@@ -209,33 +272,25 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  /// 自动为本地歌曲搜索歌词（内部方法）
   Future<void> _autoFetchLyricForLocalTrack(Track track) async {
     if (track.isRemote) return;
 
-    // 检查是否已有本地歌词文件
     final localLrcPath = await _getLocalLrcPath(track);
     if (localLrcPath != null) return;
 
-    // 检查是否已缓存过
     if (localLyricPaths.containsKey(track.id)) return;
 
-    // 检查是否正在搜索
     if (_fetchingLyricIds.contains(track.id)) return;
 
-    // 开始自动搜索
     await fetchOnlineLyricForLocal(track);
   }
 
-  /// 获取本地歌词文件路径（如果存在）
   Future<String?> _getLocalLrcPath(Track track) async {
-    // 检查音频同目录下的 .lrc 文件
     final audioPath = track.path;
     final name = audioPath.replaceAll(RegExp(r"\.[^/.]+$"), '');
     final lrcLocal = '$name.lrc';
     if (await File(lrcLocal).exists()) return lrcLocal;
 
-    // 检查应用缓存目录
     final dir = await getApplicationSupportDirectory();
     final cachedPath = '${dir.path}/local_${track.id}.lrc';
     if (await File(cachedPath).exists()) return cachedPath;
@@ -243,12 +298,6 @@ class PlayerProvider extends ChangeNotifier {
     return null;
   }
 
-  /// 为本地歌曲搜索并缓存在线歌词。
-  /// 返回已保存的文件路径，或 null 表示未找到或失败。
-  ///
-  /// [track] 本地歌曲
-  /// [source] 音乐源，默认 netease
-  /// [searchKeyword] 自定义搜索关键词，为空则使用歌曲标题
   Future<String?> fetchOnlineLyricForLocal(
     Track track, {
     String source = 'netease',
@@ -256,12 +305,10 @@ class PlayerProvider extends ChangeNotifier {
   }) async {
     if (track.isRemote) return null;
 
-    // 防止重复搜索
     if (_fetchingLyricIds.contains(track.id)) return null;
     _fetchingLyricIds.add(track.id);
 
     try {
-      // 使用歌曲标题或自定义关键词搜索
       final keyword = searchKeyword ?? _extractSearchKeyword(track.title);
       final results = await _gdApi.search(
         keyword: keyword,
@@ -269,7 +316,6 @@ class PlayerProvider extends ChangeNotifier {
         count: 10,
       );
 
-      // 选取最匹配的结果
       final match = _findBestLyricMatch(results, track.title);
       if (match == null) return null;
 
@@ -295,43 +341,29 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  /// 从文件名中提取搜索关键词
-  /// 移除常见的无用信息如音质标记、括号内容等
   String _extractSearchKeyword(String title) {
     var keyword = title;
-
-    // 移除括号及其内容 (xxx) [xxx] 【xxx】
     keyword = keyword.replaceAll(RegExp(r'[\(（\[【][^\)）\]】]*[\)）\]】]'), '');
-
-    // 移除常见音质标记
     keyword = keyword.replaceAll(
       RegExp(r'(320k|128k|flac|ape|mp3|wav|hi-?res|无损)', caseSensitive: false),
       '',
     );
-
-    // 移除多余空格
     keyword = keyword.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-    // 如果处理后太短，返回原标题
     if (keyword.length < 2) return title;
-
     return keyword;
   }
 
-  /// 从搜索结果中找到最匹配的歌词
   GdSearchTrack? _findBestLyricMatch(
     List<GdSearchTrack> results,
     String title,
   ) {
     if (results.isEmpty) return null;
 
-    // 只考虑有歌词的结果
     final withLyric = results
         .where((r) => r.lyricId != null && r.lyricId!.isNotEmpty)
         .toList();
     if (withLyric.isEmpty) return null;
 
-    // 简单匹配：标题包含关系
     final titleLower = title.toLowerCase();
     for (final r in withLyric) {
       final nameLower = r.name.toLowerCase();
@@ -340,34 +372,75 @@ class PlayerProvider extends ChangeNotifier {
       }
     }
 
-    // 没有精确匹配，返回第一个有歌词的结果
     return withLyric.first;
   }
 
   Future<void> play() async {
-    await _player.resume();
+    if (_currentHandle != null) {
+      _soloud.setPause(_currentHandle!, false);
+      isPlaying = true;
+      _startPositionTimer();
+      notifyListeners();
+    }
   }
 
   Future<void> pause() async {
-    await _player.pause();
+    if (_currentHandle != null) {
+      _soloud.setPause(_currentHandle!, true);
+      isPlaying = false;
+      notifyListeners();
+    }
   }
 
   Future<void> stop() async {
-    await _player.stop();
+    _positionTimer?.cancel();
+    if (_currentHandle != null) {
+      try {
+        await _soloud.stop(_currentHandle!);
+      } catch (e) {
+        // 忽略错误
+      }
+      _currentHandle = null;
+    }
+    if (_currentSource != null) {
+      try {
+        await _soloud.disposeSource(_currentSource!);
+      } catch (e) {
+        // 忽略错误
+      }
+      _currentSource = null;
+    }
+    isPlaying = false;
+    position = Duration.zero;
+    fftData = Float32List(256);
+    waveData = Float32List(256);
+    notifyListeners();
   }
 
   Future<void> seek(Duration d) async {
-    final clamped = _clampDuration(d, Duration.zero, duration);
-    await _player.seek(clamped);
+    if (_currentHandle != null) {
+      final clamped = _clampDuration(d, Duration.zero, duration);
+      _soloud.seek(_currentHandle!, clamped);
+      position = clamped;
+      notifyListeners();
+    }
   }
 
   Future<void> setVolume(double v) async {
     volume = v;
-    await _player.setVolume(v);
+    if (_currentHandle != null) {
+      _soloud.setVolume(_currentHandle!, v);
+    }
+    notifyListeners();
   }
 
   Future<void> _handleComplete() async {
-    // 调用外部注册的回调处理下一曲
+    _positionTimer?.cancel();
+    isPlaying = false;
+    position = Duration.zero;
+    fftData = Float32List(256);
+    waveData = Float32List(256);
+    notifyListeners();
     onTrackComplete?.call();
   }
 
@@ -379,8 +452,13 @@ class PlayerProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _positionTimer?.cancel();
+    _audioData?.dispose();
     _gdApi.close();
-    _player.dispose();
+    if (_currentSource != null) {
+      _soloud.disposeSource(_currentSource!);
+    }
+    _soloud.deinit();
     super.dispose();
   }
 }

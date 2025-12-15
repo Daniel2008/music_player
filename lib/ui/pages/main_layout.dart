@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 import '../../providers/theme_provider.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/hotkey_binder.dart';
@@ -84,39 +86,162 @@ class _MainLayoutState extends State<MainLayout>
     final isDark = theme.mode == ThemeMode.dark;
     final scheme = Theme.of(context).colorScheme;
     final isWide = MediaQuery.sizeOf(context).width >= 800;
+    final isDesktop =
+        Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
     return Scaffold(
       body: Stack(
         children: [
           const HotkeyBinder(),
-          Row(
+          Column(
             children: [
-              // 侧边导航栏
-              _buildNavigationRail(context, scheme, isDark, isWide),
-              // 分割线
-              VerticalDivider(
-                width: 1,
-                thickness: 1,
-                color: scheme.outlineVariant.withValues(alpha: 0.3),
-              ),
-              // 主内容区域
+              // 自定义标题栏（仅桌面平台）
+              if (isDesktop) _buildTitleBar(context, scheme, isDark),
+              // 主内容
               Expanded(
-                child: Column(
+                child: Row(
                   children: [
+                    // 侧边导航栏
+                    _buildNavigationRail(context, scheme, isDark, isWide),
+                    // 分割线
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: scheme.outlineVariant.withValues(alpha: 0.3),
+                    ),
+                    // 主内容区域
                     Expanded(
-                      child: PageView(
-                        controller: _pageController,
-                        physics: const NeverScrollableScrollPhysics(),
-                        children: _pages,
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: PageView(
+                              controller: _pageController,
+                              physics: const NeverScrollableScrollPhysics(),
+                              children: _pages,
+                            ),
+                          ),
+                          const MiniPlayer(),
+                        ],
                       ),
                     ),
-                    const MiniPlayer(),
                   ],
                 ),
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTitleBar(BuildContext context, ColorScheme scheme, bool isDark) {
+    return GestureDetector(
+      onPanStart: (_) => windowManager.startDragging(),
+      onDoubleTap: () async {
+        if (await windowManager.isMaximized()) {
+          windowManager.unmaximize();
+        } else {
+          windowManager.maximize();
+        }
+      },
+      child: Container(
+        height: 36,
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          border: Border(
+            bottom: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.2),
+              width: 1,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            // 应用图标
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    scheme.primary,
+                    scheme.primary.withValues(alpha: 0.7),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(
+                Icons.music_note_rounded,
+                size: 14,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 10),
+            // 应用标题
+            Text(
+              'Music Player',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: scheme.onSurface,
+              ),
+            ),
+            // 拖拽区域
+            const Expanded(child: SizedBox()),
+            // 窗口控制按钮
+            _buildWindowButton(
+              icon: Icons.remove_rounded,
+              onPressed: () => windowManager.minimize(),
+              scheme: scheme,
+            ),
+            _buildWindowButton(
+              icon: Icons.crop_square_rounded,
+              onPressed: () async {
+                if (await windowManager.isMaximized()) {
+                  windowManager.unmaximize();
+                } else {
+                  windowManager.maximize();
+                }
+              },
+              scheme: scheme,
+            ),
+            _buildWindowButton(
+              icon: Icons.close_rounded,
+              onPressed: () => windowManager.close(),
+              scheme: scheme,
+              isClose: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWindowButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    required ColorScheme scheme,
+    bool isClose = false,
+  }) {
+    return SizedBox(
+      width: 46,
+      height: 36,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          hoverColor: isClose
+              ? Colors.red.withValues(alpha: 0.9)
+              : scheme.onSurface.withValues(alpha: 0.08),
+          child: Icon(
+            icon,
+            size: 16,
+            color: scheme.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
       ),
     );
   }
@@ -143,39 +268,7 @@ class _MainLayoutState extends State<MainLayout>
       ),
       child: Column(
         children: [
-          // Logo 区域
-          Container(
-            height: 80,
-            padding: const EdgeInsets.all(16),
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    scheme.primary,
-                    scheme.primary.withValues(alpha: 0.7),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: scheme.primary.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Center(
-                child: Icon(
-                  Icons.music_note_rounded,
-                  size: 28,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           // 导航项
           Expanded(
             child: Padding(

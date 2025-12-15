@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class ThemeProvider extends ChangeNotifier {
-  ThemeMode mode = ThemeMode.system;
+  ThemeMode mode = ThemeMode.dark;
 
   ThemeData lightTheme = ThemeData(
     colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
