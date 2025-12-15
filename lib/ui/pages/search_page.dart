@@ -3,9 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../providers/favorites_provider.dart';
 import '../../providers/download_provider.dart';
+import '../../providers/api_settings_provider.dart';
+import '../../models/track.dart';
 import '../../services/gd_music_api.dart';
 
 class SearchPage extends StatefulWidget {
@@ -19,26 +22,31 @@ class _SearchPageState extends State<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
-  static const _sources = [
-    ('netease', '网易云'),
-    ('tencent', 'QQ音乐'),
-    ('kugou', '酷狗'),
-    ('kuwo', '酷我'),
-    ('migu', '咪咕'),
-    ('spotify', 'Spotify'),
-    ('ytmusic', 'YouTube'),
-    ('apple', 'Apple'),
-  ];
+  String? _source;
+  String? _quality;
 
-  static const _qualities = [
-    ('128', '标准 128k'),
-    ('192', '较高 192k'),
-    ('320', '高品 320k'),
-    ('999', '无损'),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    // 初始化时从设置中获取默认值
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final apiSettings = context.read<ApiSettingsProvider>();
+      setState(() {
+        _source = apiSettings.defaultSource;
+        _quality = apiSettings.playQuality.brValue;
+      });
+    });
+  }
 
-  String _source = 'netease';
-  String _quality = '320';
+  List<(String, String)> _getAvailableSources(ApiSettingsProvider apiSettings) {
+    return apiSettings.availableSources.map((s) => (s.id, s.name)).toList();
+  }
+
+  List<(String, String)> _getQualityOptions() {
+    return AudioQuality.values
+        .map((q) => (q.brValue, '${q.description} ${q.label}'))
+        .toList();
+  }
 
   @override
   void dispose() {
@@ -50,14 +58,21 @@ class _SearchPageState extends State<SearchPage> {
   void _search(SearchProvider searchProvider) {
     final q = _controller.text.trim();
     if (q.isNotEmpty) {
-      searchProvider.searchOnline(q, source: _source);
+      final apiSettings = context.read<ApiSettingsProvider>();
+      final source = _source ?? apiSettings.defaultSource;
+      searchProvider.searchOnline(q, source: source);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final searchProvider = context.watch<SearchProvider>();
+    final apiSettings = context.watch<ApiSettingsProvider>();
     final scheme = Theme.of(context).colorScheme;
+
+    // 确保有默认值
+    final currentSource = _source ?? apiSettings.defaultSource;
+    final currentQuality = _quality ?? apiSettings.playQuality.brValue;
 
     return Column(
       children: [
@@ -156,8 +171,8 @@ class _SearchPageState extends State<SearchPage> {
                   _buildChipSelector(
                     context: context,
                     label: '音乐源',
-                    value: _source,
-                    items: _sources,
+                    value: currentSource,
+                    items: _getAvailableSources(apiSettings),
                     onChanged: (v) {
                       setState(() => _source = v);
                       if (_controller.text.trim().isNotEmpty) {
@@ -169,8 +184,8 @@ class _SearchPageState extends State<SearchPage> {
                   _buildChipSelector(
                     context: context,
                     label: '音质',
-                    value: _quality,
-                    items: _qualities,
+                    value: currentQuality,
+                    items: _getQualityOptions(),
                     onChanged: (v) => setState(() => _quality = v),
                   ),
                 ],
@@ -226,7 +241,7 @@ class _SearchPageState extends State<SearchPage> {
                 )
               : _SearchResultList(
                   items: searchProvider.searchResults,
-                  quality: _quality,
+                  quality: currentQuality,
                 ),
         ),
       ],
@@ -340,6 +355,7 @@ class _SearchResultItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final playerProvider = context.watch<PlayerProvider>();
+    final playlistProvider = context.watch<PlaylistProvider>();
     final favoritesProvider = context.watch<FavoritesProvider>();
     final downloadProvider = context.watch<DownloadProvider>();
     final scheme = Theme.of(context).colorScheme;
@@ -443,7 +459,8 @@ class _SearchResultItem extends StatelessWidget {
           IconButton(
             icon: Icon(Icons.play_circle_filled, color: scheme.primary),
             tooltip: '立即播放',
-            onPressed: () => _playTrack(context, playerProvider, track),
+            onPressed: () =>
+                _playTrack(context, playerProvider, playlistProvider, track),
           ),
         ],
       ),
@@ -453,9 +470,50 @@ class _SearchResultItem extends StatelessWidget {
   Future<void> _playTrack(
     BuildContext context,
     PlayerProvider playerProvider,
+    PlaylistProvider playlistProvider,
     GdSearchTrack item,
   ) async {
-    final ok = await playerProvider.resolveAndPlayTrackUrl(item, br: quality);
+    // 创建 Track 对象并添加到播放列表
+    final displayArtist = item.artistText;
+    final title = displayArtist.isEmpty
+        ? item.name
+        : '${item.name} - $displayArtist';
+
+    final trackId = Track.generateRemoteId(item.source, item.id);
+
+    // 检查是否已存在于播放列表中
+    final existingIndex = playlistProvider.playlist.tracks.indexWhere(
+      (t) => t.id == trackId,
+    );
+
+    if (existingIndex >= 0) {
+      // 已存在，直接切换到该曲目
+      playlistProvider.setCurrentIndex(existingIndex);
+    } else {
+      // 不存在，创建新的 Track 并添加
+      final newTrack = Track(
+        id: trackId,
+        title: title,
+        path: '', // 路径会在 resolveAndPlayTrackUrl 中解析
+        artist: displayArtist.isEmpty ? null : displayArtist,
+        kind: TrackKind.remote,
+        remoteSource: item.source,
+        remoteTrackId: item.id,
+        remoteLyricId: item.lyricId ?? item.id,
+        lyricKey: 'gd_${item.source}_${item.lyricId ?? item.id}',
+      );
+
+      playlistProvider.addTrack(newTrack);
+      playlistProvider.setCurrentIndex(
+        playlistProvider.playlist.tracks.length - 1,
+      );
+    }
+
+    final ok = await playerProvider.resolveAndPlayTrackUrl(
+      item,
+      br: quality,
+      playlistProvider: playlistProvider,
+    );
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
 import '../widgets/visualizer_view.dart';
 import '../widgets/lyric_view.dart';
 import 'visualizer_fullscreen_page.dart';
@@ -102,12 +103,20 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
                 tooltip: '全屏显示频谱',
                 onPressed: () {
-                  final provider = context.read<PlayerProvider>();
+                  final playerProvider = context.read<PlayerProvider>();
+                  final playlistProvider = context.read<PlaylistProvider>();
                   Navigator.of(context).push(
                     PageRouteBuilder(
                       pageBuilder: (context, animation, secondaryAnimation) =>
-                          ChangeNotifierProvider.value(
-                            value: provider,
+                          MultiProvider(
+                            providers: [
+                              ChangeNotifierProvider.value(
+                                value: playerProvider,
+                              ),
+                              ChangeNotifierProvider.value(
+                                value: playlistProvider,
+                              ),
+                            ],
                             child: const VisualizerFullscreenPage(),
                           ),
                       transitionsBuilder:

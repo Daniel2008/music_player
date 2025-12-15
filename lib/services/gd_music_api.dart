@@ -101,6 +101,22 @@ class GdTrackUrl {
           : int.tryParse('${json['size']}'),
     );
   }
+
+  /// 获取文件大小的友好显示
+  String get sizeDisplay {
+    if (sizeKb == null) return '未知大小';
+    if (sizeKb! < 1024) return '$sizeKb KB';
+    final mb = sizeKb! / 1024;
+    return '${mb.toStringAsFixed(1)} MB';
+  }
+
+  /// 获取音质的友好显示
+  String get qualityDisplay {
+    if (br == null) return '未知音质';
+    if (br! >= 999) return 'Hi-Res';
+    if (br! >= 740) return '无损';
+    return '${br}kbps';
+  }
 }
 
 class GdLyric {
@@ -115,52 +131,123 @@ class GdLyric {
       tlyric: json['tlyric']?.toString(),
     );
   }
+
+  /// 是否有翻译歌词
+  bool get hasTranslation => tlyric != null && tlyric!.trim().isNotEmpty;
 }
 
+class GdPicUrl {
+  final String url;
+
+  const GdPicUrl({required this.url});
+
+  factory GdPicUrl.fromJson(Map<String, dynamic> json) {
+    return GdPicUrl(url: (json['url'] ?? '').toString());
+  }
+}
+
+/// GD 音乐台 API 客户端
+///
+/// 支持配置 API 地址、超时时间等参数
 class GdMusicApiClient {
-  final Uri baseUri;
+  Uri _baseUri;
   final http.Client _client;
+  Duration _timeout;
 
-  GdMusicApiClient({Uri? baseUri, http.Client? client})
-    : baseUri = baseUri ?? Uri.parse('https://music-api.gdstudio.xyz/api.php'),
-      _client = client ?? http.Client();
+  /// 默认 API 地址
+  static const String defaultBaseUrl = 'https://music-api.gdstudio.xyz/api.php';
 
-  /// Build a best-effort cover image URL from [picId] and [source].
-  /// The backend may expose a picture endpoint; construct a URL under the same
-  /// origin to request the picture resource. Returns null if [picId] is null.
-  String? buildCoverUrl(String? picId, String source) {
+  /// 默认超时时间
+  static const Duration defaultTimeout = Duration(seconds: 12);
+
+  GdMusicApiClient({String? baseUrl, http.Client? client, Duration? timeout})
+    : _baseUri = Uri.parse(baseUrl ?? defaultBaseUrl),
+      _client = client ?? http.Client(),
+      _timeout = timeout ?? defaultTimeout;
+
+  /// 获取当前 API 基础地址
+  Uri get baseUri => _baseUri;
+
+  /// 获取当前超时时间
+  Duration get timeout => _timeout;
+
+  /// 更新 API 基础地址
+  void updateBaseUrl(String url) {
+    String normalizedUrl = url.trim();
+    if (!normalizedUrl.startsWith('http://') &&
+        !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = 'https://$normalizedUrl';
+    }
+    if (normalizedUrl.endsWith('/')) {
+      normalizedUrl = normalizedUrl.substring(0, normalizedUrl.length - 1);
+    }
+    _baseUri = Uri.parse(normalizedUrl);
+  }
+
+  /// 更新超时时间
+  void updateTimeout(Duration timeout) {
+    _timeout = timeout;
+  }
+
+  /// 更新超时时间（秒）
+  void updateTimeoutSeconds(int seconds) {
+    _timeout = Duration(seconds: seconds.clamp(5, 60));
+  }
+
+  /// 构建封面图片 URL
+  ///
+  /// 根据 [picId] 和 [source] 返回最佳的封面图片 URL
+  /// [size] 可选 300（小图）或 500（大图）
+  String? buildCoverUrl(String? picId, String source, {int size = 300}) {
     if (picId == null || picId.isEmpty) return null;
+
+    // 使用 API 的图片接口
+    return _baseUri
+        .replace(
+          queryParameters: {
+            'types': 'pic',
+            'source': source,
+            'id': picId,
+            'size': size.toString(),
+          },
+        )
+        .toString();
+  }
+
+  /// 获取封面图片直接链接
+  Future<String?> getCoverUrl({
+    required String source,
+    required String picId,
+    int size = 300,
+  }) async {
     try {
-      // Try backend-provided picture endpoint first
-      final origin = Uri.parse(baseUri.toString()).origin;
-      final backendPic = Uri.parse(origin)
-          .replace(
-            path: '/pic',
-            queryParameters: {'id': picId, 'source': source},
-          )
-          .toString();
+      final json = await _getJson(
+        _baseUri.replace(
+          queryParameters: {
+            'types': 'pic',
+            'source': source,
+            'id': picId,
+            'size': size.toString(),
+          },
+        ),
+      );
 
-      // Common public fallbacks by source
-      final src = source.toLowerCase();
-      if (src.contains('qq')) {
-        // QQ music common format
-        return 'https://y.gtimg.cn/music/photo_new/T002R300x300M000$picId.jpg';
+      if (json is Map<String, dynamic>) {
+        final picUrl = GdPicUrl.fromJson(json);
+        return picUrl.url.isNotEmpty ? picUrl.url : null;
       }
-      if (src.contains('netease') || src.contains('163')) {
-        // Netease album art endpoint
-        return 'https://music.163.com/api/img/album?id=$picId';
-      }
-      if (src.contains('kuwo')) {
-        // Kuwo common image host (best-effort)
-        return 'https://img1.kuwo.cn/star/$picId';
-      }
-
-      return backendPic;
+      return null;
     } catch (_) {
       return null;
     }
   }
 
+  /// 搜索歌曲
+  ///
+  /// [keyword] 搜索关键词，可以是歌曲名、歌手名或专辑名
+  /// [source] 音乐源，默认为 netease
+  /// [count] 每页结果数量，默认为 20
+  /// [page] 页码，默认为 1
   Future<List<GdSearchTrack>> search({
     required String keyword,
     String source = 'netease',
@@ -168,7 +255,7 @@ class GdMusicApiClient {
     int page = 1,
   }) async {
     final json = await _getJson(
-      baseUri.replace(
+      _baseUri.replace(
         queryParameters: {
           'types': 'search',
           'source': source,
@@ -190,13 +277,35 @@ class GdMusicApiClient {
     throw const FormatException('Unexpected search response');
   }
 
+  /// 搜索专辑中的歌曲
+  ///
+  /// [keyword] 专辑名或专辑 ID
+  /// [source] 音乐源，会自动添加 _album 后缀
+  Future<List<GdSearchTrack>> searchAlbum({
+    required String keyword,
+    String source = 'netease',
+    int count = 50,
+  }) async {
+    return search(
+      keyword: keyword,
+      source: '${source}_album',
+      count: count,
+      page: 1,
+    );
+  }
+
+  /// 获取歌曲播放链接
+  ///
+  /// [source] 音乐源
+  /// [id] 歌曲 ID
+  /// [br] 音质：128、192、320、740（无损）、999（Hi-Res），默认为 999
   Future<GdTrackUrl> getTrackUrl({
     required String source,
     required String id,
     String br = '999',
   }) async {
     final json = await _getJson(
-      baseUri.replace(
+      _baseUri.replace(
         queryParameters: {'types': 'url', 'source': source, 'id': id, 'br': br},
       ),
     );
@@ -212,9 +321,13 @@ class GdMusicApiClient {
     throw const FormatException('Unexpected url response');
   }
 
+  /// 获取歌词
+  ///
+  /// [source] 音乐源
+  /// [id] 歌词 ID（通常与歌曲 ID 相同）
   Future<GdLyric> getLyric({required String source, required String id}) async {
     final json = await _getJson(
-      baseUri.replace(
+      _baseUri.replace(
         queryParameters: {'types': 'lyric', 'source': source, 'id': id},
       ),
     );
@@ -226,10 +339,35 @@ class GdMusicApiClient {
     throw const FormatException('Unexpected lyric response');
   }
 
+  /// 测试 API 连接
+  ///
+  /// 返回 true 表示连接成功
+  Future<bool> testConnection() async {
+    try {
+      final results = await search(
+        keyword: 'test',
+        source: 'netease',
+        count: 1,
+      );
+      return results.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 获取 API 状态信息
+  Future<Map<String, dynamic>> getApiInfo() async {
+    return {
+      'baseUrl': _baseUri.toString(),
+      'timeout': _timeout.inSeconds,
+      'connected': await testConnection(),
+    };
+  }
+
   Future<dynamic> _getJson(Uri uri) async {
     http.Response resp;
     try {
-      resp = await _client.get(uri).timeout(const Duration(seconds: 12));
+      resp = await _client.get(uri).timeout(_timeout);
     } on TimeoutException {
       throw GdMusicApiTimeout(uri: uri);
     } on http.ClientException catch (e) {

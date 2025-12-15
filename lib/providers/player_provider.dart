@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
 import '../services/gd_music_api.dart';
+import 'playlist_provider.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
@@ -62,7 +63,16 @@ class PlayerProvider extends ChangeNotifier {
     return path;
   }
 
-  Future<bool> resolveAndPlayTrackUrl(GdSearchTrack item, {String br = '999'}) async {
+  /// 解析并播放在线曲目
+  ///
+  /// [item] 搜索结果中的曲目
+  /// [br] 音质
+  /// [playlistProvider] 如果提供，会更新播放列表中当前曲目的 URL
+  Future<bool> resolveAndPlayTrackUrl(
+    GdSearchTrack item, {
+    String br = '999',
+    PlaylistProvider? playlistProvider,
+  }) async {
     if (isResolvingUrl) return false;
     isResolvingUrl = true;
     playError = null;
@@ -80,16 +90,36 @@ class PlayerProvider extends ChangeNotifier {
           ? item.name
           : '${item.name} - $displayArtist';
 
+      final artUri = _gdApi.buildCoverUrl(item.picId, item.source);
+      final lyricKey = 'gd_${item.source}_${item.lyricId ?? item.id}';
+
+      // 如果提供了 playlistProvider，更新当前曲目的 URL 和封面
+      if (playlistProvider != null) {
+        final current = playlistProvider.current;
+        if (current != null) {
+          final updatedTrack = current.copyWith(path: url.url, artUri: artUri);
+          playlistProvider.updateTrackAt(
+            playlistProvider.currentIndex,
+            updatedTrack,
+          );
+          // 直接播放，使用更新后的 track
+          await _playTrackDirectly(updatedTrack);
+          return true;
+        }
+      }
+
+      // 回退到原来的逻辑：创建新的 Track 并播放
       final track = Track(
+        id: Track.generateRemoteId(item.source, item.id),
         title: title,
         path: url.url,
         artist: displayArtist.isEmpty ? null : displayArtist,
-        artUri: _gdApi.buildCoverUrl(item.picId, item.source),
+        artUri: artUri,
         kind: TrackKind.remote,
         remoteSource: item.source,
         remoteTrackId: item.id,
         remoteLyricId: item.lyricId ?? item.id,
-        lyricKey: 'gd_${item.source}_${item.lyricId ?? item.id}',
+        lyricKey: lyricKey,
       );
 
       await playTrack(track);
@@ -101,6 +131,20 @@ class PlayerProvider extends ChangeNotifier {
     } finally {
       isResolvingUrl = false;
       notifyListeners();
+    }
+  }
+
+  /// 直接播放 Track（内部方法，不创建新 Track）
+  Future<void> _playTrackDirectly(Track track) async {
+    await _player.stop();
+    if (track.isRemote) {
+      await _player.setSource(UrlSource(track.path));
+      await _player.resume();
+      unawaited(_ensureLyricCachedFor(track));
+    } else {
+      final path = await _resolveSourcePath(track.path);
+      await _player.setSource(DeviceFileSource(path));
+      await _player.resume();
     }
   }
 

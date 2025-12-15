@@ -27,9 +27,14 @@ class _LyricViewState extends State<LyricView> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _player?.removeListener(_onPlayerChanged);
+    _playlist?.removeListener(_onPlaylistChanged);
+
     _player = context.read<PlayerProvider>();
-    _player?.addListener(_onPlayerChanged);
     _playlist = context.read<PlaylistProvider>();
+
+    _player?.addListener(_onPlayerChanged);
+    _playlist?.addListener(_onPlaylistChanged);
+
     _lastLyricRevision = _player?.lyricRevision;
     _loadForCurrent();
   }
@@ -37,6 +42,8 @@ class _LyricViewState extends State<LyricView> {
   @override
   Widget build(BuildContext context) {
     final p = context.watch<PlayerProvider>();
+    // 也监听 PlaylistProvider 以便在曲目变化时重建
+    context.watch<PlaylistProvider>();
     final pos = p.position;
     final idx = _currentIndex(pos);
     final scheme = Theme.of(context).colorScheme;
@@ -136,12 +143,18 @@ class _LyricViewState extends State<LyricView> {
   }
 
   void _onPlayerChanged() {
-    final current = _playlist?.current;
     final rev = _player?.lyricRevision;
-    final trackChanged = current?.id != _lastTrackId;
     final lyricChanged = rev != _lastLyricRevision;
-    if (trackChanged || (lyricChanged && current?.id == _lastTrackId)) {
+    if (lyricChanged) {
       _lastLyricRevision = rev;
+      _loadForCurrent();
+    }
+  }
+
+  void _onPlaylistChanged() {
+    final current = _playlist?.current;
+    final trackChanged = current?.id != _lastTrackId;
+    if (trackChanged) {
       _loadForCurrent();
     }
   }
@@ -202,6 +215,7 @@ class _LyricViewState extends State<LyricView> {
   @override
   void dispose() {
     _player?.removeListener(_onPlayerChanged);
+    _playlist?.removeListener(_onPlaylistChanged);
     super.dispose();
   }
 }
