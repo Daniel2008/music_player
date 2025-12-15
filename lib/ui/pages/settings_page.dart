@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/api_settings_provider.dart';
 import '../../providers/download_provider.dart';
+import '../../providers/player_provider.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -36,6 +37,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final theme = context.watch<ThemeProvider>();
     final apiSettings = context.watch<ApiSettingsProvider>();
     final downloadProvider = context.watch<DownloadProvider>();
+    final playerProvider = context.watch<PlayerProvider>();
     final scheme = Theme.of(context).colorScheme;
 
     return ListView(
@@ -387,6 +389,40 @@ class _SettingsPageState extends State<SettingsPage> {
                     ? null
                     : () => _showDownloadManager(context),
                 child: const Text('管理'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // 歌词设置
+        _buildSection(
+          context,
+          title: '歌词',
+          icon: Icons.lyrics_outlined,
+          children: [
+            _buildTile(
+              context,
+              title: '自动搜索本地歌曲歌词',
+              subtitle: '播放本地音乐时自动从网络搜索歌词',
+              trailing: Switch(
+                value: apiSettings.autoFetchLyric,
+                onChanged: (value) {
+                  apiSettings.setAutoFetchLyric(value);
+                  playerProvider.autoFetchLyricForLocal = value;
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            _buildTile(
+              context,
+              title: '歌词缓存',
+              subtitle: '已缓存 ${playerProvider.localLyricPaths.length} 首本地歌曲歌词',
+              trailing: TextButton(
+                onPressed: playerProvider.localLyricPaths.isEmpty
+                    ? null
+                    : () => _confirmClearLyricCache(context, playerProvider),
+                child: const Text('清除'),
               ),
             ),
           ],
@@ -764,6 +800,37 @@ class _SettingsPageState extends State<SettingsPage> {
                   context.read<DownloadProvider>().removeTask(task.id),
               tooltip: '移除',
             ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmClearLyricCache(
+    BuildContext context,
+    PlayerProvider playerProvider,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清除歌词缓存'),
+        content: Text(
+          '确定要清除所有已缓存的本地歌曲歌词吗？（共 ${playerProvider.localLyricPaths.length} 首）',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              playerProvider.localLyricPaths.clear();
+              Navigator.pop(context);
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('歌词缓存已清除')));
+            },
+            child: const Text('清除'),
+          ),
         ],
       ),
     );

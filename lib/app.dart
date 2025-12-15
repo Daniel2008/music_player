@@ -26,7 +26,13 @@ class AppRoot extends StatelessWidget {
           },
         ),
         ChangeNotifierProvider(create: (_) => PlayerProvider()),
-        ChangeNotifierProvider(create: (_) => PlaylistProvider()),
+        ChangeNotifierProvider(
+          create: (_) {
+            final playlistProvider = PlaylistProvider();
+            playlistProvider.init(); // 异步加载保存的播放列表
+            return playlistProvider;
+          },
+        ),
         ChangeNotifierProvider(create: (_) => SearchProvider()),
         ChangeNotifierProvider(create: (_) => DownloadProvider()),
         ChangeNotifierProvider(create: (_) => HistoryProvider()),
@@ -70,6 +76,8 @@ class _AppInitializerState extends State<_AppInitializer> {
 
     final apiSettings = context.read<ApiSettingsProvider>();
     final downloadProvider = context.read<DownloadProvider>();
+    final playerProvider = context.read<PlayerProvider>();
+    final playlistProvider = context.read<PlaylistProvider>();
 
     // 等待 API 设置初始化完成
     if (!apiSettings.initialized) {
@@ -82,6 +90,17 @@ class _AppInitializerState extends State<_AppInitializer> {
     downloadProvider.updateApiBaseUrl(apiSettings.apiBaseUrl);
     downloadProvider.updateTimeout(apiSettings.requestTimeout);
     downloadProvider.defaultQuality = apiSettings.downloadQuality.brValue;
+
+    // 同步歌词自动搜索设置
+    playerProvider.autoFetchLyricForLocal = apiSettings.autoFetchLyric;
+
+    // 注册自动下一曲回调
+    playerProvider.onTrackComplete = () {
+      playlistProvider.next();
+      if (playlistProvider.current != null) {
+        playerProvider.playTrack(playlistProvider.current!);
+      }
+    };
 
     setState(() {
       _initialized = true;

@@ -103,14 +103,25 @@ class _VisualizerViewState extends State<VisualizerView>
 
   List<double> _levels = const [];
   List<double> _targets = const [];
+  List<double> _peaks = const []; // 峰值记录
   int _barCount = 0;
 
   VisualizerStyle _style = VisualizerStyle.bars;
 
-  // 节拍模拟
+  // 节拍模拟 - 多层节奏
   double _beatPhase = 0.0;
   double _beatIntensity = 0.0;
   int _beatCounter = 0;
+  double _subBeatPhase = 0.0; // 副节拍
+  double _measurePhase = 0.0; // 小节相位
+
+  // 动态 BPM 模拟（80-160 BPM 范围内变化）
+  double _currentBPM = 128.0;
+  double _targetBPM = 128.0;
+  double _bpmChangeTimer = 0.0;
+
+  // 能量累积
+  double _globalEnergy = 0.0;
 
   // 粒子系统
   final List<_Particle> _particles = [];
@@ -118,6 +129,9 @@ class _VisualizerViewState extends State<VisualizerView>
   // 历史数据（用于3D效果）
   List<List<double>> _history = [];
   static const int _historyLength = 12;
+
+  // 波浪偏移
+  double _waveOffset = 0.0;
 
   @override
   void initState() {
@@ -134,6 +148,7 @@ class _VisualizerViewState extends State<VisualizerView>
     _barCount = n;
     _levels = List<double>.filled(n, 0.0);
     _targets = List<double>.filled(n, 0.0);
+    _peaks = List<double>.filled(n, 0.0);
     _history = List.generate(
       _historyLength,
       (_) => List<double>.filled(n, 0.0),
@@ -147,63 +162,122 @@ class _VisualizerViewState extends State<VisualizerView>
     final dt = 0.016;
 
     if (isPlaying) {
-      _beatPhase += dt * 2.13 * 2 * math.pi;
+      // 快速 BPM (150-180)，更有活力
+      _bpmChangeTimer += dt;
+      if (_bpmChangeTimer > 2.0) {
+        _bpmChangeTimer = 0;
+        _targetBPM = 150 + _rng.nextDouble() * 30;
+      }
+      _currentBPM += (_targetBPM - _currentBPM) * dt * 2.0;
+
+      // 主节拍
+      final beatSpeed = _currentBPM / 60.0 * 2 * math.pi;
+      _beatPhase += dt * beatSpeed;
       if (_beatPhase > 2 * math.pi) {
         _beatPhase -= 2 * math.pi;
         _beatCounter++;
+        _globalEnergy = 0.25 + _rng.nextDouble() * 0.15;
       }
 
-      final beatPulse = math.pow(math.sin(_beatPhase).abs(), 0.5).toDouble();
-      _beatIntensity = beatPulse;
+      // 副节拍（更快）
+      _subBeatPhase += dt * beatSpeed * 2.5;
+      if (_subBeatPhase > 2 * math.pi) _subBeatPhase -= 2 * math.pi;
 
-      final isStrongBeat = _beatCounter % 4 == 0;
+      // 小节相位
+      _measurePhase += dt * beatSpeed / 4;
+      if (_measurePhase > 2 * math.pi) _measurePhase -= 2 * math.pi;
+
+      // 波浪偏移（更快）
+      _waveOffset += dt * 5.0;
+
+      // 更尖锐的节拍脉冲
+      final beatPulse = math
+          .pow((math.sin(_beatPhase) * 0.5 + 0.5), 0.5)
+          .toDouble();
+      final subBeatPulse =
+          math.pow((math.sin(_subBeatPhase) * 0.5 + 0.5), 0.5).toDouble() * 0.3;
+      _beatIntensity = (beatPulse * 0.7 + subBeatPulse).clamp(0.0, 1.0);
+
+      // 更快的能量衰减
+      _globalEnergy *= 0.75;
+
+      // 节拍类型
+      final beatInMeasure = _beatCounter % 4;
+      final isDownbeat = beatInMeasure == 0;
+
+      // 偶尔的能量爆发
+      if (_rng.nextDouble() < 0.04) {
+        _globalEnergy = 0.2 + _rng.nextDouble() * 0.2;
+      }
 
       for (var i = 0; i < _barCount; i++) {
-        final centerDist = (2.0 * i / (_barCount - 1) - 1.0).abs();
-        final freqRatio = centerDist;
+        final pos = i / (_barCount - 1);
 
-        final lowWeight = math.pow(1 - freqRatio, 2).toDouble();
-        final midWeight = math.exp(-math.pow((freqRatio - 0.4) * 3, 2));
-        final highWeight = math.pow(freqRatio, 1.5).toDouble();
+        // 每个柱子都有完整的动态范围
+        // 基础能量：节拍驱动
+        double energy = _beatIntensity * 0.5 + _globalEnergy * 0.3;
 
-        final lowEnergy = _beatIntensity * 0.95 + _rng.nextDouble() * 0.05;
-        final midWave =
-            math.sin(_beatPhase * 3 + freqRatio * math.pi * 2) * 0.3;
-        final midEnergy = 0.15 + midWave + _rng.nextDouble() * 0.35;
-        final highEnergy = 0.05 + _rng.nextDouble() * 0.4;
+        // 波浪效果（平滑的正弦波）
+        final wave1 = math.sin(_waveOffset + pos * math.pi * 4) * 0.15;
+        final wave2 = math.sin(_waveOffset * 1.5 + pos * math.pi * 2) * 0.1;
+        energy += wave1 + wave2;
 
-        final totalWeight = lowWeight + midWeight + highWeight;
-        final freqEnergy =
-            (lowEnergy * lowWeight +
-                midEnergy * midWeight +
-                highEnergy * highWeight) /
-            totalWeight;
+        // 强拍时全体提升
+        if (isDownbeat) {
+          energy += 0.15;
+        }
 
-        final spike = _rng.nextDouble() < 0.06 ? _rng.nextDouble() * 0.4 : 0.0;
-        final strongBoost = isStrongBeat ? 0.25 * lowWeight : 0.0;
+        // 副节拍脉冲
+        energy += subBeatPulse * 0.1;
 
-        _targets[i] = (freqEnergy + spike + strongBoost).clamp(0.0, 1.0);
+        // 相邻柱子的关联（产生波动感）
+        if (i > 0 && i < _barCount - 1) {
+          final neighborEffect =
+              (_targets[i - 1] + _targets[math.min(i + 1, _barCount - 1)]) *
+              0.08;
+          energy += neighborEffect;
+        }
+
+        _targets[i] = energy.clamp(0.0, 1.0);
       }
 
-      _updateParticles(dt, isStrongBeat);
+      _updateParticles(dt, isDownbeat);
     } else {
+      // 暂停时的呼吸效果
       _beatPhase += dt * 0.8;
+      _waveOffset += dt * 0.5;
+
       for (var i = 0; i < _barCount; i++) {
-        final breath = 0.08 + 0.05 * math.sin(_beatPhase + i * 0.2);
+        final pos = i / (_barCount - 1);
+        final breath =
+            0.08 +
+            0.05 * math.sin(_beatPhase + pos * math.pi * 2) +
+            0.03 * math.sin(_waveOffset * 2 + pos * math.pi * 4);
         _targets[i] = breath.clamp(0.0, 1.0);
       }
+
       _particles.removeWhere((p) => p.life <= 0);
       for (var p in _particles) {
         p.life -= dt * 0.5;
       }
     }
 
+    // === 快速响应的跟随 ===
     for (var i = 0; i < _barCount; i++) {
       final current = _levels[i];
       final target = _targets[i];
       final diff = target - current;
-      final factor = diff > 0 ? 0.5 : 0.12;
+
+      // 上升更快，下降也较快，整体更灵敏
+      final factor = diff > 0 ? 0.7 : 0.25;
       _levels[i] = (current + diff * factor).clamp(0.0, 1.0);
+
+      // 更新峰值
+      if (_levels[i] > _peaks[i]) {
+        _peaks[i] = _levels[i];
+      } else {
+        _peaks[i] = math.max(0, _peaks[i] - dt * 0.8);
+      }
     }
 
     // 更新历史记录
@@ -216,37 +290,94 @@ class _VisualizerViewState extends State<VisualizerView>
   void _updateParticles(double dt, bool isStrongBeat) {
     _particles.removeWhere((p) => p.life <= 0);
 
+    // 更新现有粒子
     for (var p in _particles) {
+      // 添加一些水平漂移
+      p.vx += (_rng.nextDouble() - 0.5) * 20 * dt;
+      p.vx *= 0.98; // 水平阻尼
+
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vy += 50 * dt;
-      p.life -= dt;
-      p.size *= 0.995;
+
+      // 重力效果，但强拍时减弱（粒子上升）
+      final gravity = isStrongBeat ? 20.0 : 60.0;
+      p.vy += gravity * dt;
+
+      // 生命衰减
+      p.life -= dt * (isStrongBeat ? 0.6 : 1.0);
+
+      // 大小随生命值变化
+      p.size *= (0.99 - (1 - p.life) * 0.02);
     }
 
-    if (_particles.length < 150) {
-      final avgLevel = _levels.isEmpty
-          ? 0.0
-          : _levels.reduce((a, b) => a + b) / _levels.length;
-      final spawnCount = (avgLevel * 5).round() + (isStrongBeat ? 8 : 0);
+    // 计算能量指标
+    final avgLevel = _levels.isEmpty
+        ? 0.0
+        : _levels.reduce((a, b) => a + b) / _levels.length;
 
-      for (var i = 0; i < spawnCount; i++) {
-        if (_barCount <= 0) break;
-        final idx = _rng.nextInt(_barCount);
-        final level = _levels[idx];
-        if (level > 0.3) {
-          _particles.add(
-            _Particle(
-              x: idx / _barCount,
-              y: 1.0 - level,
-              vx: (_rng.nextDouble() - 0.5) * 30,
-              vy: -_rng.nextDouble() * 80 * level,
-              size: 2 + _rng.nextDouble() * 4 * level,
-              life: 0.8 + _rng.nextDouble() * 1.2,
-              hue: _rng.nextDouble(),
-            ),
-          );
+    // 计算低频能量（中间区域）
+    final midStart = (_barCount * 0.3).round();
+    final midEnd = (_barCount * 0.7).round();
+    double bassLevel = 0;
+    if (midEnd > midStart) {
+      for (var i = midStart; i < midEnd; i++) {
+        bassLevel += _levels[i];
+      }
+      bassLevel /= (midEnd - midStart);
+    }
+
+    // 根据能量和节拍动态计算生成数量
+    int spawnCount = (avgLevel * 3).round();
+    if (isStrongBeat) {
+      spawnCount += (bassLevel * 12).round(); // 强拍时根据低频能量爆发
+    }
+    if (_globalEnergy > 0.5) {
+      spawnCount += (_globalEnergy * 6).round();
+    }
+
+    // 限制粒子总数
+    final maxParticles = 200;
+    spawnCount = math.min(spawnCount, maxParticles - _particles.length);
+
+    for (var i = 0; i < spawnCount; i++) {
+      if (_barCount <= 0) break;
+
+      // 优先从高能量区域生成粒子
+      int idx;
+      if (isStrongBeat && _rng.nextDouble() < 0.7) {
+        // 强拍时从中间（低频区）生成
+        idx = midStart + _rng.nextInt(math.max(1, midEnd - midStart));
+      } else {
+        // 随机位置，但偏向高能量区域
+        idx = _rng.nextInt(_barCount);
+        // 尝试找到更高能量的位置
+        for (var attempt = 0; attempt < 3; attempt++) {
+          final newIdx = _rng.nextInt(_barCount);
+          if (_levels[newIdx] > _levels[idx]) {
+            idx = newIdx;
+          }
         }
+      }
+
+      final level = _levels[idx];
+      final threshold = isStrongBeat ? 0.2 : 0.35;
+
+      if (level > threshold) {
+        // 根据节拍强度调整粒子属性
+        final energyBoost = isStrongBeat ? 1.5 : 1.0;
+        final sizeBoost = isStrongBeat ? 1.3 : 1.0;
+
+        _particles.add(
+          _Particle(
+            x: idx / _barCount,
+            y: 1.0 - level * 0.9,
+            vx: (_rng.nextDouble() - 0.5) * 40 * energyBoost,
+            vy: -_rng.nextDouble() * 120 * level * energyBoost,
+            size: (2 + _rng.nextDouble() * 5 * level) * sizeBoost,
+            life: 0.6 + _rng.nextDouble() * 1.0 + (isStrongBeat ? 0.4 : 0),
+            hue: _rng.nextDouble(),
+          ),
+        );
       }
     }
   }
@@ -524,7 +655,13 @@ class _SpectrumPainter extends CustomPainter {
     final colWidth = ((size.width - gapX * (n - 1)) / n).clamp(3.0, 18.0);
     final dotRadius = (colWidth / 3).clamp(1.2, 3.5);
     final stepY = dotRadius * 2.6;
-    final rows = (size.height / stepY).floor().clamp(6, 32);
+    // 计算能够填满整个高度的行数
+    final rows = (size.height / stepY).floor();
+    if (rows <= 0) return;
+
+    // 计算垂直偏移，使点阵居中
+    final totalHeight = rows * stepY;
+    final offsetY = (size.height - totalHeight) / 2;
 
     var x = 0.0;
     for (var i = 0; i < n; i++) {
@@ -533,13 +670,14 @@ class _SpectrumPainter extends CustomPainter {
 
       for (var r = 0; r < rows; r++) {
         final isOn = r < active;
-        final t = isOn ? (r / (rows - 1)).clamp(0.0, 1.0) : 0.0;
+        final t = isOn ? (r / (rows - 1).clamp(1, rows)).clamp(0.0, 1.0) : 0.0;
         paint.color = isOn
             ? (Color.lerp(faintColor, color, 0.35 + 0.65 * t) ?? color)
-            : faintColor.withValues(alpha: 0.10);
+            : faintColor.withValues(alpha: 0.08);
 
         final cx = x + colWidth / 2;
-        final cy = size.height - (r + 0.5) * stepY;
+        // 从底部开始绘制，填满整个高度
+        final cy = size.height - offsetY - (r + 0.5) * stepY;
         canvas.drawCircle(Offset(cx, cy), dotRadius, paint);
       }
 
@@ -598,47 +736,80 @@ class _SpectrumPainter extends CustomPainter {
 
     final dx = size.width / (n - 1);
     final mid = size.height / 2;
-    final amp = size.height * 0.4;
+    final amp = size.height * 0.45; // 增大振幅
 
     final pathTop = Path();
     final pathBottom = Path();
 
+    // 使用三次贝塞尔曲线实现更平滑的波浪
+    final points = <Offset>[];
+    final pointsBottom = <Offset>[];
+
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
       final x = dx * i;
-      final yTop = mid - v * amp;
-      final yBottom = mid + v * amp;
-
-      if (i == 0) {
-        pathTop.moveTo(x, yTop);
-        pathBottom.moveTo(x, yBottom);
-      } else {
-        final prevX = dx * (i - 1);
-        final ctrlX = (prevX + x) / 2;
-        final prevV = levels[i - 1].clamp(0.0, 1.0);
-        pathTop.quadraticBezierTo(ctrlX, mid - prevV * amp, x, yTop);
-        pathBottom.quadraticBezierTo(ctrlX, mid + prevV * amp, x, yBottom);
-      }
+      points.add(Offset(x, mid - v * amp));
+      pointsBottom.add(Offset(x, mid + v * amp));
     }
 
+    // 绘制上半部分波浪
+    pathTop.moveTo(points[0].dx, points[0].dy);
+    for (var i = 0; i < points.length - 1; i++) {
+      final p0 = i > 0 ? points[i - 1] : points[0];
+      final p1 = points[i];
+      final p2 = points[i + 1];
+      final p3 = i < points.length - 2
+          ? points[i + 2]
+          : points[points.length - 1];
+
+      // Catmull-Rom 样条转三次贝塞尔
+      final cp1x = p1.dx + (p2.dx - p0.dx) / 6;
+      final cp1y = p1.dy + (p2.dy - p0.dy) / 6;
+      final cp2x = p2.dx - (p3.dx - p1.dx) / 6;
+      final cp2y = p2.dy - (p3.dy - p1.dy) / 6;
+
+      pathTop.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+    }
+
+    // 绘制下半部分波浪
+    pathBottom.moveTo(pointsBottom[0].dx, pointsBottom[0].dy);
+    for (var i = 0; i < pointsBottom.length - 1; i++) {
+      final p0 = i > 0 ? pointsBottom[i - 1] : pointsBottom[0];
+      final p1 = pointsBottom[i];
+      final p2 = pointsBottom[i + 1];
+      final p3 = i < pointsBottom.length - 2
+          ? pointsBottom[i + 2]
+          : pointsBottom[pointsBottom.length - 1];
+
+      final cp1x = p1.dx + (p2.dx - p0.dx) / 6;
+      final cp1y = p1.dy + (p2.dy - p0.dy) / 6;
+      final cp2x = p2.dx - (p3.dx - p1.dx) / 6;
+      final cp2y = p2.dy - (p3.dy - p1.dy) / 6;
+
+      pathBottom.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
+    }
+
+    // 渐变填充
     final gradient = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        color.withValues(alpha: 0.6),
-        color.withValues(alpha: 0.1),
-        color.withValues(alpha: 0.1),
-        color.withValues(alpha: 0.6),
+        color.withValues(alpha: 0.7),
+        color.withValues(alpha: 0.15),
+        color.withValues(alpha: 0.15),
+        color.withValues(alpha: 0.7),
       ],
-      stops: const [0.0, 0.45, 0.55, 1.0],
+      stops: const [0.0, 0.4, 0.6, 1.0],
     );
 
+    // 上半部分填充
     final fillPath = Path()
       ..addPath(pathTop, Offset.zero)
       ..lineTo(size.width, mid)
       ..lineTo(0, mid)
       ..close();
 
+    // 下半部分填充
     final fillPath2 = Path()
       ..moveTo(0, mid)
       ..addPath(pathBottom, Offset.zero)
@@ -655,12 +826,33 @@ class _SpectrumPainter extends CustomPainter {
     canvas.drawPath(fillPath2, paint);
     paint.shader = null;
 
+    // 绘制波浪轮廓线
     paint
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
       ..color = color;
     canvas.drawPath(pathTop, paint);
     canvas.drawPath(pathBottom, paint);
+
+    // 添加发光效果
+    if (enableGlow) {
+      paint
+        ..color = color.withValues(alpha: 0.4)
+        ..strokeWidth = 4
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      canvas.drawPath(pathTop, paint);
+      canvas.drawPath(pathBottom, paint);
+      paint.maskFilter = null;
+    }
+
+    // 绘制中线
+    paint
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = color.withValues(alpha: 0.3);
+    canvas.drawLine(Offset(0, mid), Offset(size.width, mid), paint);
   }
 
   void _paintParticles(Canvas canvas, Size size, Paint paint) {

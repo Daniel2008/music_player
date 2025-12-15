@@ -15,6 +15,8 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
+  // 当前选择的频谱样式
+  VisualizerStyle _visualizerStyle = VisualizerStyle.bars;
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -41,11 +43,11 @@ class _PlayerPageState extends State<PlayerPage> {
             padding: const EdgeInsets.fromLTRB(24, 24, 12, 24),
             child: Column(
               children: [
-                // 频谱卡片
+                // 频谱卡片 - 占 2/3
                 Expanded(flex: 2, child: _buildVisualizerCard(context, scheme)),
-                const SizedBox(height: 24),
-                // 歌词卡片
-                Expanded(flex: 3, child: _buildLyricsCard(context, scheme)),
+                const SizedBox(height: 16),
+                // 歌词卡片 - 占 1/3
+                Expanded(flex: 1, child: _buildLyricsCard(context, scheme)),
               ],
             ),
           ),
@@ -68,11 +70,11 @@ class _PlayerPageState extends State<PlayerPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 频谱
-          SizedBox(height: 180, child: _buildVisualizerCard(context, scheme)),
+          // 频谱 - 占更大比例
+          SizedBox(height: 240, child: _buildVisualizerCard(context, scheme)),
           const SizedBox(height: 16),
-          // 歌词
-          SizedBox(height: 300, child: _buildLyricsCard(context, scheme)),
+          // 歌词 - 占较小比例
+          SizedBox(height: 120, child: _buildLyricsCard(context, scheme)),
           const SizedBox(height: 16),
           // 播放列表
           SizedBox(height: 400, child: _buildPlaylistCard(context, scheme)),
@@ -89,11 +91,18 @@ class _PlayerPageState extends State<PlayerPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Stack(
         children: [
-          const Padding(padding: EdgeInsets.all(20), child: VisualizerView()),
-          // 全屏按钮
+          // 频谱视图，使用外部管理的样式
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: VisualizerView(
+              showStyleSelector: false,
+              fixedStyle: _visualizerStyle,
+            ),
+          ),
+          // 全屏按钮 - 放在左上角
           Positioned(
             top: 8,
-            right: 8,
+            left: 8,
             child: Material(
               color: Colors.transparent,
               child: IconButton(
@@ -130,6 +139,55 @@ class _PlayerPageState extends State<PlayerPage> {
                     ),
                   );
                 },
+              ),
+            ),
+          ),
+          // 效果选择按钮 - 放在右上角
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Material(
+              color: Colors.transparent,
+              child: PopupMenuButton<VisualizerStyle>(
+                tooltip: '频谱样式',
+                initialValue: _visualizerStyle,
+                icon: Icon(
+                  _visualizerStyle.icon,
+                  color: scheme.onSurfaceVariant,
+                ),
+                onSelected: (v) {
+                  setState(() => _visualizerStyle = v);
+                },
+                itemBuilder: (context) => VisualizerStyle.values
+                    .map(
+                      (style) => PopupMenuItem(
+                        value: style,
+                        child: Row(
+                          children: [
+                            Icon(
+                              style.icon,
+                              size: 18,
+                              color: style == _visualizerStyle
+                                  ? scheme.primary
+                                  : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              style.displayName,
+                              style: TextStyle(
+                                color: style == _visualizerStyle
+                                    ? scheme.primary
+                                    : null,
+                                fontWeight: style == _visualizerStyle
+                                    ? FontWeight.bold
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
               ),
             ),
           ),

@@ -83,6 +83,7 @@ class ApiSettingsProvider extends ChangeNotifier {
   static const String _keyEnabledSources = 'enabled_sources';
   static const String _keyRequestTimeout = 'request_timeout';
   static const String _keyShowUnstableSources = 'show_unstable_sources';
+  static const String _keyAutoFetchLyric = 'auto_fetch_lyric';
 
   // 默认值
   static const String defaultApiBaseUrl =
@@ -105,6 +106,7 @@ class ApiSettingsProvider extends ChangeNotifier {
       .toList();
   int _requestTimeout = defaultRequestTimeout;
   bool _showUnstableSources = false;
+  bool _autoFetchLyric = true;
 
   // Getters
   bool get initialized => _initialized;
@@ -115,6 +117,7 @@ class ApiSettingsProvider extends ChangeNotifier {
   List<String> get enabledSources => List.unmodifiable(_enabledSources);
   int get requestTimeout => _requestTimeout;
   bool get showUnstableSources => _showUnstableSources;
+  bool get autoFetchLyric => _autoFetchLyric;
 
   /// 获取完整的 API URL
   Uri get apiUri => Uri.parse(_apiBaseUrl);
@@ -169,6 +172,7 @@ class ApiSettingsProvider extends ChangeNotifier {
     _requestTimeout =
         _prefs?.getInt(_keyRequestTimeout) ?? defaultRequestTimeout;
     _showUnstableSources = _prefs?.getBool(_keyShowUnstableSources) ?? false;
+    _autoFetchLyric = _prefs?.getBool(_keyAutoFetchLyric) ?? true;
 
     _initialized = true;
     notifyListeners();
@@ -247,6 +251,13 @@ class ApiSettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设置是否自动为本地歌曲搜索歌词
+  Future<void> setAutoFetchLyric(bool auto) async {
+    _autoFetchLyric = auto;
+    await _prefs?.setBool(_keyAutoFetchLyric, auto);
+    notifyListeners();
+  }
+
   /// 重置为默认设置
   Future<void> resetToDefaults() async {
     _apiBaseUrl = defaultApiBaseUrl;
@@ -256,6 +267,7 @@ class ApiSettingsProvider extends ChangeNotifier {
     _enabledSources = MusicSources.stableSources.map((s) => s.id).toList();
     _requestTimeout = defaultRequestTimeout;
     _showUnstableSources = false;
+    _autoFetchLyric = true;
 
     await _prefs?.remove(_keyApiBaseUrl);
     await _prefs?.remove(_keyDefaultSource);
@@ -264,6 +276,7 @@ class ApiSettingsProvider extends ChangeNotifier {
     await _prefs?.remove(_keyEnabledSources);
     await _prefs?.remove(_keyRequestTimeout);
     await _prefs?.remove(_keyShowUnstableSources);
+    await _prefs?.remove(_keyAutoFetchLyric);
 
     notifyListeners();
   }
