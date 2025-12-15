@@ -108,6 +108,15 @@ class _VisualizerViewState extends State<VisualizerView>
 
   VisualizerStyle _style = VisualizerStyle.bars;
 
+  // 缓存播放状态，避免每帧访问 Provider
+  bool _isPlaying = false;
+  // 缓存是否真正在播放音频（位置在持续变化）
+  bool _hasAudio = false;
+  // 缓存上一次的播放位置
+  Duration _lastPosition = Duration.zero;
+  // 上次位置变化的时间
+  DateTime _lastPositionChangeTime = DateTime.now();
+
   // 节拍模拟 - 多层节奏
   double _beatPhase = 0.0;
   double _beatIntensity = 0.0;
@@ -143,6 +152,13 @@ class _VisualizerViewState extends State<VisualizerView>
     _controller.addListener(_tick);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 监听播放状态变化
+    _isPlaying = context.read<PlayerProvider>().isPlaying;
+  }
+
   void _ensureBars(int n) {
     if (_barCount == n) return;
     _barCount = n;
@@ -155,20 +171,47 @@ class _VisualizerViewState extends State<VisualizerView>
     );
   }
 
+  void _updatePlayingState(
+    bool isPlaying,
+    Duration position,
+    Duration duration,
+  ) {
+    _isPlaying = isPlaying;
+
+    final now = DateTime.now();
+
+    // 检测位置是否在变化（真正在播放）
+    if (position != _lastPosition && position > Duration.zero) {
+      _lastPosition = position;
+      _lastPositionChangeTime = now;
+    }
+
+    // 判断是否真正在播放：
+    // 1. isPlaying 为 true
+    // 2. 有时长（已加载音频）
+    // 3. 位置在最近 500ms 内有变化（说明音频正在播放）
+    final timeSinceLastChange = now.difference(_lastPositionChangeTime);
+    _hasAudio =
+        isPlaying &&
+        duration > Duration.zero &&
+        position > Duration.zero &&
+        timeSinceLastChange.inMilliseconds < 500;
+  }
+
   void _tick() {
     if (!mounted || _barCount == 0) return;
 
-    final isPlaying = context.read<PlayerProvider>().isPlaying;
     final dt = 0.016;
 
-    if (isPlaying) {
-      // 快速 BPM (150-180)，更有活力
+    // 只有在真正播放且有音频时才跳动
+    if (_isPlaying && _hasAudio) {
+      // 快速 BPM (240-320)，极快节奏
       _bpmChangeTimer += dt;
-      if (_bpmChangeTimer > 2.0) {
+      if (_bpmChangeTimer > 1.0) {
         _bpmChangeTimer = 0;
-        _targetBPM = 150 + _rng.nextDouble() * 30;
+        _targetBPM = 240 + _rng.nextDouble() * 80;
       }
-      _currentBPM += (_targetBPM - _currentBPM) * dt * 2.0;
+      _currentBPM += (_targetBPM - _currentBPM) * dt * 5.0;
 
       // 主节拍
       final beatSpeed = _currentBPM / 60.0 * 2 * math.pi;
@@ -176,65 +219,57 @@ class _VisualizerViewState extends State<VisualizerView>
       if (_beatPhase > 2 * math.pi) {
         _beatPhase -= 2 * math.pi;
         _beatCounter++;
-        _globalEnergy = 0.25 + _rng.nextDouble() * 0.15;
+        // 基础能量设为0，只依赖节拍
       }
 
-      // 副节拍（更快）
-      _subBeatPhase += dt * beatSpeed * 2.5;
+      // 副节拍（极快）
+      _subBeatPhase += dt * beatSpeed * 4.0;
       if (_subBeatPhase > 2 * math.pi) _subBeatPhase -= 2 * math.pi;
 
       // 小节相位
       _measurePhase += dt * beatSpeed / 4;
       if (_measurePhase > 2 * math.pi) _measurePhase -= 2 * math.pi;
 
-      // 波浪偏移（更快）
-      _waveOffset += dt * 5.0;
+      // 波浪偏移（极快）
+      _waveOffset += dt * 12.0;
 
-      // 更尖锐的节拍脉冲
+      // 节拍脉冲（更尖锐，响应更快）
       final beatPulse = math
-          .pow((math.sin(_beatPhase) * 0.5 + 0.5), 0.5)
+          .pow((math.sin(_beatPhase) * 0.5 + 0.5), 0.4)
           .toDouble();
       final subBeatPulse =
-          math.pow((math.sin(_subBeatPhase) * 0.5 + 0.5), 0.5).toDouble() * 0.3;
-      _beatIntensity = (beatPulse * 0.7 + subBeatPulse).clamp(0.0, 1.0);
-
-      // 更快的能量衰减
-      _globalEnergy *= 0.75;
+          math.pow((math.sin(_subBeatPhase) * 0.5 + 0.5), 0.4).toDouble() *
+          0.35;
+      _beatIntensity = (beatPulse * 0.6 + subBeatPulse).clamp(0.0, 1.0);
 
       // 节拍类型
       final beatInMeasure = _beatCounter % 4;
       final isDownbeat = beatInMeasure == 0;
 
-      // 偶尔的能量爆发
-      if (_rng.nextDouble() < 0.04) {
-        _globalEnergy = 0.2 + _rng.nextDouble() * 0.2;
-      }
-
       for (var i = 0; i < _barCount; i++) {
         final pos = i / (_barCount - 1);
 
-        // 每个柱子都有完整的动态范围
-        // 基础能量：节拍驱动
-        double energy = _beatIntensity * 0.5 + _globalEnergy * 0.3;
+        // 基础能量为0，完全由节拍驱动（大幅降低）
+        double energy = _beatIntensity * 0.6;
 
-        // 波浪效果（平滑的正弦波）
-        final wave1 = math.sin(_waveOffset + pos * math.pi * 4) * 0.15;
-        final wave2 = math.sin(_waveOffset * 1.5 + pos * math.pi * 2) * 0.1;
+        // 波浪效果（降低幅度）
+        final wave1 = math.sin(_waveOffset + pos * math.pi * 6) * 0.12;
+        final wave2 = math.sin(_waveOffset * 2.0 + pos * math.pi * 3) * 0.08;
         energy += wave1 + wave2;
 
-        // 强拍时全体提升
+        // 强拍时全体提升（降低）
         if (isDownbeat) {
-          energy += 0.15;
+          energy += 0.1;
         }
 
-        // 副节拍脉冲
-        energy += subBeatPulse * 0.1;
+        // 副节拍脉冲（降低）
+        energy += subBeatPulse * 0.08;
 
         // 相邻柱子的关联（产生波动感）
         if (i > 0 && i < _barCount - 1) {
           final neighborEffect =
               (_targets[i - 1] + _targets[math.min(i + 1, _barCount - 1)]) *
-              0.08;
+              0.05;
           energy += neighborEffect;
         }
 
@@ -268,15 +303,15 @@ class _VisualizerViewState extends State<VisualizerView>
       final target = _targets[i];
       final diff = target - current;
 
-      // 上升更快，下降也较快，整体更灵敏
-      final factor = diff > 0 ? 0.7 : 0.25;
+      // 上升瞬间，下降快速，极度灵敏
+      final factor = diff > 0 ? 0.95 : 0.6;
       _levels[i] = (current + diff * factor).clamp(0.0, 1.0);
 
       // 更新峰值
       if (_levels[i] > _peaks[i]) {
         _peaks[i] = _levels[i];
       } else {
-        _peaks[i] = math.max(0, _peaks[i] - dt * 0.8);
+        _peaks[i] = math.max(0, _peaks[i] - dt * 1.2);
       }
     }
 
@@ -391,6 +426,15 @@ class _VisualizerViewState extends State<VisualizerView>
 
   @override
   Widget build(BuildContext context) {
+    // 在 build 中更新播放状态，而不是在 _tick 中
+    final playerProvider = context.watch<PlayerProvider>();
+    // 检查是否真正在播放：isPlaying 且有时长且位置在变化
+    _updatePlayingState(
+      playerProvider.isPlaying,
+      playerProvider.position,
+      playerProvider.duration,
+    );
+
     final scheme = Theme.of(context).colorScheme;
     final currentStyle = widget.fixedStyle ?? _style;
 
@@ -903,13 +947,17 @@ class _SpectrumPainter extends CustomPainter {
 
   void _paintFlame(Canvas canvas, Size size, Paint paint) {
     final n = levels.length;
-    const gap = 1.0;
-    final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 16.0);
+    const gap = 2.0;
+    final barWidth = ((size.width - gap * (n - 1)) / n).clamp(3.0, 18.0);
 
     var x = 0.0;
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
-      final h = (v * size.height).clamp(4.0, size.height);
+      // 限制最大高度，避免遮挡
+      final maxH = size.height * 0.85;
+      final h = (v * maxH).clamp(4.0, maxH);
+
+      final rect = Rect.fromLTWH(x, size.height - h, barWidth, h);
 
       final gradient = LinearGradient(
         begin: Alignment.bottomCenter,
@@ -918,13 +966,11 @@ class _SpectrumPainter extends CustomPainter {
           const Color(0xFFFF4500),
           const Color(0xFFFF6B00),
           const Color(0xFFFFD700),
-          const Color(0xFFFFFF00).withValues(alpha: 0.8),
-          const Color(0xFFFFFFFF).withValues(alpha: 0.3),
+          const Color(0xFFFFFF00).withValues(alpha: 0.7),
+          const Color(0xFFFFFFFF).withValues(alpha: 0.2),
         ],
-        stops: const [0.0, 0.3, 0.6, 0.85, 1.0],
+        stops: const [0.0, 0.35, 0.65, 0.88, 1.0],
       );
-
-      final rect = Rect.fromLTWH(x, size.height - h, barWidth, h);
 
       paint
         ..style = PaintingStyle.fill
@@ -932,34 +978,25 @@ class _SpectrumPainter extends CustomPainter {
 
       final flamePath = Path();
       flamePath.moveTo(x, size.height);
-      flamePath.lineTo(x, size.height - h * 0.7);
+      flamePath.lineTo(x, size.height - h * 0.75);
 
       final waveOffset =
-          math.sin(i * 0.5 + beatIntensity * math.pi * 2) * barWidth * 0.3;
+          math.sin(i * 0.6 + beatIntensity * math.pi * 2) * barWidth * 0.25;
       flamePath.quadraticBezierTo(
         x + barWidth / 2 + waveOffset,
-        size.height - h - 4,
+        size.height - h - 2,
         x + barWidth,
-        size.height - h * 0.7,
+        size.height - h * 0.75,
       );
 
       flamePath.lineTo(x + barWidth, size.height);
       flamePath.close();
 
       canvas.drawPath(flamePath, paint);
-
-      if (enableGlow && v > 0.4) {
-        paint
-          ..shader = null
-          ..color = const Color(0xFFFF6B00).withValues(alpha: 0.4 * v)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-        canvas.drawPath(flamePath, paint);
-        paint.maskFilter = null;
-      }
+      paint.shader = null;
 
       x += barWidth + gap;
     }
-    paint.shader = null;
   }
 
   void _paintRadar(Canvas canvas, Size size, Paint paint) {
@@ -1089,7 +1126,9 @@ class _SpectrumPainter extends CustomPainter {
     var x = 0.0;
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
-      final h = (v * size.height).clamp(2.0, size.height);
+      // 限制最大高度，避免遮挡
+      final maxH = size.height * 0.9;
+      final h = (v * maxH).clamp(2.0, maxH);
 
       // 彩虹渐变
       final hue = (i / n) * 360;
@@ -1104,9 +1143,9 @@ class _SpectrumPainter extends CustomPainter {
         begin: Alignment.bottomCenter,
         end: Alignment.topCenter,
         colors: [
-          barColor.withValues(alpha: 0.8),
+          barColor.withValues(alpha: 0.7),
           barColor,
-          HSLColor.fromAHSL(1.0, (hue + 30) % 360, 0.8, 0.7).toColor(),
+          HSLColor.fromAHSL(1.0, (hue + 30) % 360, 0.8, 0.65).toColor(),
         ],
       );
 

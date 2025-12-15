@@ -84,8 +84,17 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
         const SingleActivator(LogicalKeyboardKey.escape): () {
           Navigator.of(context).maybePop();
         },
-        const SingleActivator(LogicalKeyboardKey.space): () {
-          player.isPlaying ? player.pause() : player.play();
+        const SingleActivator(LogicalKeyboardKey.space): () async {
+          if (player.isPlaying) {
+            player.pause();
+          } else {
+            final current = playlist.current;
+            if (current != null && player.duration == Duration.zero) {
+              await player.playTrack(current);
+            } else {
+              player.play();
+            }
+          }
         },
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
           final newPos = player.position - const Duration(seconds: 5);
@@ -441,8 +450,18 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                     size: 36,
                   ),
                   color: scheme.onPrimary,
-                  onPressed: () =>
-                      player.isPlaying ? player.pause() : player.play(),
+                  onPressed: () async {
+                    if (player.isPlaying) {
+                      player.pause();
+                    } else {
+                      final current = playlist.current;
+                      if (current != null && player.duration == Duration.zero) {
+                        await player.playTrack(current);
+                      } else {
+                        player.play();
+                      }
+                    }
+                  },
                   tooltip: player.isPlaying ? '暂停 (空格)' : '播放 (空格)',
                 ),
               ),

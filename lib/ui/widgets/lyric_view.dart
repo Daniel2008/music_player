@@ -118,34 +118,37 @@ class _LyricViewState extends State<LyricView> {
       });
     }
 
-    return ListView.builder(
-      itemCount: lines.length,
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      itemBuilder: (context, i) {
-        final isActive = i == idx;
-        // 确保有对应的 GlobalKey
-        if (i >= _lineKeys.length) {
-          _lineKeys.addAll(
-            List.generate(i - _lineKeys.length + 1, (_) => GlobalKey()),
-          );
-        }
-        return Container(
-          key: _lineKeys[i],
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 24),
-          child: AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            style: TextStyle(
-              fontSize: isActive ? 20 : 16,
-              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-              color: isActive
-                  ? scheme.primary
-                  : scheme.onSurfaceVariant.withValues(alpha: 0.6),
-              height: 1.5,
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: ListView.builder(
+        itemCount: lines.length,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        itemBuilder: (context, i) {
+          final isActive = i == idx;
+          // 确保有对应的 GlobalKey
+          if (i >= _lineKeys.length) {
+            _lineKeys.addAll(
+              List.generate(i - _lineKeys.length + 1, (_) => GlobalKey()),
+            );
+          }
+          return Container(
+            key: _lineKeys[i],
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 24),
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
+              style: TextStyle(
+                fontSize: isActive ? 20 : 16,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                color: isActive
+                    ? scheme.primary
+                    : scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                height: 1.5,
+              ),
+              child: Text(lines[i].text, textAlign: TextAlign.center),
             ),
-            child: Text(lines[i].text, textAlign: TextAlign.center),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -156,72 +159,75 @@ class _LyricViewState extends State<LyricView> {
     bool isLocal,
   ) {
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.lyrics_outlined,
-              size: 48,
-              color: scheme.outline.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _lyricError ?? '暂无歌词',
-              style: TextStyle(color: scheme.outline, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-
-            // 本地歌曲显示搜索选项
-            if (isLocal && current != null) ...[
-              // 自动搜索开关
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '自动搜索歌词',
-                    style: TextStyle(color: scheme.outline, fontSize: 14),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: _player?.autoFetchLyricForLocal ?? true,
-                    onChanged: (value) {
-                      setState(() {
-                        _player?.autoFetchLyricForLocal = value;
-                      });
-                    },
-                  ),
-                ],
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lyrics_outlined,
+                size: 48,
+                color: scheme.outline.withValues(alpha: 0.5),
               ),
               const SizedBox(height: 16),
-
-              // 搜索按钮
-              FilledButton.icon(
-                icon: const Icon(Icons.search),
-                label: const Text('搜索在线歌词'),
-                onPressed: () => _searchOnlineLyric(current),
+              Text(
+                _lyricError ?? '暂无歌词',
+                style: TextStyle(color: scheme.outline, fontSize: 16),
+                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
 
-              // 自定义搜索
-              TextButton.icon(
-                icon: const Icon(Icons.edit, size: 18),
-                label: const Text('自定义关键词搜索'),
-                onPressed: () => _showCustomSearchDialog(context, current),
-              ),
+              // 本地歌曲显示搜索选项
+              if (isLocal && current != null) ...[
+                // 自动搜索开关
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '自动搜索歌词',
+                      style: TextStyle(color: scheme.outline, fontSize: 14),
+                    ),
+                    const SizedBox(width: 8),
+                    Switch(
+                      value: _player?.autoFetchLyricForLocal ?? true,
+                      onChanged: (value) {
+                        setState(() {
+                          _player?.autoFetchLyricForLocal = value;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // 搜索按钮
+                FilledButton.icon(
+                  icon: const Icon(Icons.search),
+                  label: const Text('搜索在线歌词'),
+                  onPressed: () => _searchOnlineLyric(current),
+                ),
+                const SizedBox(height: 12),
+
+                // 自定义搜索
+                TextButton.icon(
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: const Text('自定义关键词搜索'),
+                  onPressed: () => _showCustomSearchDialog(context, current),
+                ),
+              ],
+
+              // 在线歌曲显示重新获取按钮
+              if (current != null && current.isRemote) ...[
+                FilledButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新获取歌词'),
+                  onPressed: () => _refetchRemoteLyric(current),
+                ),
+              ],
             ],
-
-            // 在线歌曲显示重新获取按钮
-            if (current != null && current.isRemote) ...[
-              FilledButton.icon(
-                icon: const Icon(Icons.refresh),
-                label: const Text('重新获取歌词'),
-                onPressed: () => _refetchRemoteLyric(current),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -419,7 +425,30 @@ class _LyricViewState extends State<LyricView> {
     final trackChanged = current?.id != _lastTrackId;
     if (trackChanged) {
       _loadForCurrent();
+      // 如果是本地歌曲且开启了自动搜索，尝试自动搜索歌词
+      if (current != null &&
+          !current.isRemote &&
+          (_player?.autoFetchLyricForLocal ?? false)) {
+        _tryAutoSearchLyric(current);
+      }
     }
+  }
+
+  /// 尝试自动搜索歌词（如果没有找到本地歌词）
+  Future<void> _tryAutoSearchLyric(Track track) async {
+    // 延迟一点执行，等待 _loadForCurrent 完成
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
+    // 如果已经有歌词了，不需要搜索
+    if (lines.isNotEmpty) return;
+
+    // 检查是否已有歌词文件
+    final existingPath = await _findExistingLyricPath(track);
+    if (existingPath != null) return;
+
+    // 自动搜索
+    await _searchOnlineLyric(track);
   }
 
   Future<void> _loadForCurrent() async {

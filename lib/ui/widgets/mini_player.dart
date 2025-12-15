@@ -385,7 +385,7 @@ class _MiniPlayerState extends State<MiniPlayer>
         ),
         const SizedBox(width: 8),
         // 播放/暂停
-        _buildPlayPauseButton(playerProvider, scheme),
+        _buildPlayPauseButton(playerProvider, playlistProvider, scheme),
         const SizedBox(width: 8),
         // 下一首
         _buildControlButton(
@@ -462,6 +462,7 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   Widget _buildPlayPauseButton(
     PlayerProvider playerProvider,
+    PlaylistProvider playlistProvider,
     ColorScheme scheme,
   ) {
     return Tooltip(
@@ -469,9 +470,19 @@ class _MiniPlayerState extends State<MiniPlayer>
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: playerProvider.isPlaying
-              ? playerProvider.pause
-              : playerProvider.play,
+          onTap: () async {
+            if (playerProvider.isPlaying) {
+              await playerProvider.pause();
+            } else {
+              // 如果有当前曲目且播放器没有时长（说明没有加载音频），先加载曲目
+              final current = playlistProvider.current;
+              if (current != null && playerProvider.duration == Duration.zero) {
+                await playerProvider.playTrack(current);
+              } else {
+                await playerProvider.play();
+              }
+            }
+          },
           borderRadius: BorderRadius.circular(24),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),

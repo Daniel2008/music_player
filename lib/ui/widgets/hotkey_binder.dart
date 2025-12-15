@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import '../../platform/hotkeys.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/playlist_provider.dart';
 
 class HotkeyBinder extends StatefulWidget {
   const HotkeyBinder({super.key});
@@ -18,10 +19,11 @@ class _HotkeyBinderState extends State<HotkeyBinder> {
     super.didChangeDependencies();
     if (_registered) return;
     final p = context.read<PlayerProvider>();
+    final playlist = context.read<PlaylistProvider>();
     _registered = true;
     // Hotkey registration can fail in restricted environments.
     // Keep the app running even if hotkeys are unavailable.
-    Hotkeys.register(p).catchError((_) {});
+    Hotkeys.register(p, playlist).catchError((_) {});
   }
 
   @override
