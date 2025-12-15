@@ -1,24 +1,33 @@
-import React from 'react';
-import styled from 'styled-components';
-import { useSelector, useDispatch } from 'react-redux';
-import { Input, Table, Tag, Space } from 'antd';
-import { PlayCircleOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import { setCurrentTrack, setPlaying } from '../redux/playerSlice';
+import React from "react";
+import styled from "styled-components";
+import { useSelector, useDispatch } from "react-redux";
+import { Input, Table, Tag, Space } from "antd";
+import {
+  PlayCircleOutlined,
+  PlusOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
+import {
+  setCurrentTrack,
+  setPlaying,
+  setCurrentTrackIndex,
+} from "../redux/playerSlice";
 
 // 播放列表组件
 const Playlist = () => {
   const dispatch = useDispatch();
-  const { tracks, searchQuery } = useSelector(state => state.library);
-  const { currentTrack } = useSelector(state => state.player);
+  const { tracks, searchQuery } = useSelector((state) => state.library);
+  const { currentTrack } = useSelector((state) => state.player);
   const [filteredTracks, setFilteredTracks] = React.useState([]);
 
   // 过滤歌曲列表
   React.useEffect(() => {
     if (searchQuery) {
-      const filtered = tracks.filter(track => 
-        track.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        track.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        track.album.toLowerCase().includes(searchQuery.toLowerCase())
+      const filtered = tracks.filter(
+        (track) =>
+          track.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          track.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          track.album.toLowerCase().includes(searchQuery.toLowerCase()),
       );
       setFilteredTracks(filtered);
     } else {
@@ -28,71 +37,71 @@ const Playlist = () => {
 
   // 格式化时间
   const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return '0:00';
+    if (!seconds || isNaN(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   // 播放歌曲
-  const handlePlayTrack = (track) => {
-    dispatch(setCurrentTrack(track));
+  const handlePlayTrack = (track, index) => {
+    dispatch(setCurrentTrack({ track, index }));
     dispatch(setPlaying(true));
   };
 
   // 表格列配置
   const columns = [
     {
-      title: '序号',
-      dataIndex: 'index',
-      key: 'index',
+      title: "序号",
+      dataIndex: "index",
+      key: "index",
       width: 50,
       render: (text, record, index) => (
-        <PlayButton 
-          onClick={() => handlePlayTrack(record)} 
-          className={currentTrack?.id === record.id ? 'active' : ''}
+        <PlayButton
+          onClick={() => handlePlayTrack(record, index)}
+          className={currentTrack?.id === record.id ? "active" : ""}
         >
           <PlayCircleOutlined />
         </PlayButton>
       ),
     },
     {
-      title: '标题',
-      dataIndex: 'title',
-      key: 'title',
+      title: "标题",
+      dataIndex: "title",
+      key: "title",
       ellipsis: true,
       render: (text, record) => (
-        <TrackTitle className={currentTrack?.id === record.id ? 'active' : ''}>
+        <TrackTitle className={currentTrack?.id === record.id ? "active" : ""}>
           {text}
         </TrackTitle>
       ),
     },
     {
-      title: '艺术家',
-      dataIndex: 'artist',
-      key: 'artist',
+      title: "艺术家",
+      dataIndex: "artist",
+      key: "artist",
       ellipsis: true,
       width: 150,
     },
     {
-      title: '专辑',
-      dataIndex: 'album',
-      key: 'album',
+      title: "专辑",
+      dataIndex: "album",
+      key: "album",
       ellipsis: true,
       width: 150,
     },
     {
-      title: '流派',
-      dataIndex: 'genre',
-      key: 'genre',
+      title: "流派",
+      dataIndex: "genre",
+      key: "genre",
       ellipsis: true,
       width: 100,
-      render: (text) => <Tag color="blue">{text || '未知'}</Tag>,
+      render: (text) => <Tag color="blue">{text || "未知"}</Tag>,
     },
     {
-      title: '时长',
-      dataIndex: 'duration',
-      key: 'duration',
+      title: "时长",
+      dataIndex: "duration",
+      key: "duration",
       width: 80,
       render: (text) => formatTime(text),
     },
@@ -112,7 +121,12 @@ const Playlist = () => {
         <SearchBar
           placeholder="搜索歌曲、艺术家或专辑"
           prefix={<SearchOutlined />}
-          onChange={(e) => dispatch({ type: 'library/setSearchQuery', payload: e.target.value })}
+          onChange={(e) =>
+            dispatch({
+              type: "library/setSearchQuery",
+              payload: e.target.value,
+            })
+          }
           value={searchQuery}
         />
         <AddButton>
@@ -126,8 +140,10 @@ const Playlist = () => {
           columns={columns}
           dataSource={tableData}
           pagination={false}
-          scroll={{ y: 'calc(100vh - 320px - 80px - 64px - 48px)' }}
-          rowClassName={(record) => currentTrack?.id === record.id ? 'playing-track' : ''}
+          scroll={{ y: "calc(100vh - 320px - 80px - 64px - 48px)" }}
+          rowClassName={(record) =>
+            currentTrack?.id === record.id ? "playing-track" : ""
+          }
           bordered={false}
         />
       </PlaylistContent>
@@ -189,7 +205,7 @@ const AddButton = styled.button`
   transition: all 0.2s ease;
 
   &:hover {
-    background-color: #357ABD;
+    background-color: #357abd;
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
   }

@@ -1,7 +1,7 @@
-import React from 'react';
-import styled from 'styled-components';
-import { useSelector, useDispatch } from 'react-redux';
-import { Slider, Tooltip } from 'antd';
+import React from "react";
+import styled from "styled-components";
+import { useSelector, useDispatch } from "react-redux";
+import { Slider, Tooltip } from "antd";
 import {
   PlayCircleOutlined,
   PauseCircleOutlined,
@@ -13,37 +13,44 @@ import {
   SoundOutlined,
   FullscreenOutlined,
   FullscreenExitOutlined,
-} from '@ant-design/icons';
-import { 
-  togglePlay, 
-  setCurrentTime, 
-  setVolume, 
-  toggleShuffle, 
-  setRepeatMode 
-} from '../redux/playerSlice';
+} from "@ant-design/icons";
+import {
+  togglePlay,
+  setCurrentTime,
+  setVolume,
+  toggleShuffle,
+  setRepeatMode,
+  setCurrentTrack,
+  setCurrentTrackIndex,
+  setPlaying,
+  addToShuffleHistory,
+} from "../redux/playerSlice";
 
 // 底部播放控制栏组件
 const PlayerControls = () => {
   const dispatch = useDispatch();
-  const { 
-    currentTrack, 
-    isPlaying, 
-    volume, 
-    currentTime, 
-    duration, 
-    shuffle, 
-    repeatMode 
-  } = useSelector(state => state.player);
+  const {
+    currentTrack,
+    currentTrackIndex,
+    isPlaying,
+    volume,
+    currentTime,
+    duration,
+    shuffle,
+    shuffleHistory,
+    repeatMode,
+  } = useSelector((state) => state.player);
+  const { tracks } = useSelector((state) => state.library);
   const [isMuted, setIsMuted] = React.useState(false);
   const [prevVolume, setPrevVolume] = React.useState(volume);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
 
   // 格式化时间
   const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return '0:00';
+    if (!seconds || isNaN(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   // 切换播放状态
@@ -78,6 +85,89 @@ const PlayerControls = () => {
     }
   };
 
+  // 获取随机索引（不重复）
+  const getRandomIndex = (currentIndex, totalTracks) => {
+    if (totalTracks <= 1) return 0;
+
+    // 创建可用索引数组（排除历史记录中的索引）
+    const availableIndices = [];
+    for (let i = 0; i < totalTracks; i++) {
+      if (!shuffleHistory.includes(i)) {
+        availableIndices.push(i);
+      }
+    }
+
+    // 如果所有歌曲都播放过了，清空历史重新开始
+    if (availableIndices.length === 0) {
+      for (let i = 0; i < totalTracks; i++) {
+        if (i !== currentIndex) {
+          availableIndices.push(i);
+        }
+      }
+    }
+
+    // 随机选择一个索引
+    const randomIdx = Math.floor(Math.random() * availableIndices.length);
+    return availableIndices[randomIdx];
+  };
+
+  // 播放上一曲
+  const handlePrevious = () => {
+    if (!tracks || tracks.length === 0) return;
+
+    let newIndex;
+
+    if (shuffle) {
+      // 随机模式：从历史记录中获取上一首
+      if (shuffleHistory.length > 1) {
+        // 移除当前索引，获取上一个
+        const historyWithoutCurrent = [...shuffleHistory];
+        historyWithoutCurrent.pop();
+        newIndex = historyWithoutCurrent[historyWithoutCurrent.length - 1];
+      } else {
+        // 没有历史记录，随机选择
+        newIndex = getRandomIndex(currentTrackIndex, tracks.length);
+        dispatch(addToShuffleHistory(newIndex));
+      }
+    } else {
+      // 顺序模式
+      newIndex =
+        currentTrackIndex > 0 ? currentTrackIndex - 1 : tracks.length - 1;
+    }
+
+    dispatch(setCurrentTrack({ track: tracks[newIndex], index: newIndex }));
+    dispatch(setPlaying(true));
+  };
+
+  // 播放下一曲
+  const handleNext = () => {
+    if (!tracks || tracks.length === 0) return;
+
+    let newIndex;
+
+    if (shuffle) {
+      // 随机模式
+      newIndex = getRandomIndex(currentTrackIndex, tracks.length);
+      dispatch(addToShuffleHistory(newIndex));
+    } else {
+      // 顺序模式
+      if (repeatMode === "all") {
+        // 列表循环
+        newIndex = (currentTrackIndex + 1) % tracks.length;
+      } else if (repeatMode === "one") {
+        // 单曲循环
+        newIndex = currentTrackIndex;
+      } else {
+        // 顺序播放
+        newIndex =
+          currentTrackIndex < tracks.length - 1 ? currentTrackIndex + 1 : 0;
+      }
+    }
+
+    dispatch(setCurrentTrack({ track: tracks[newIndex], index: newIndex }));
+    dispatch(setPlaying(true));
+  };
+
   // 切换随机播放
   const handleToggleShuffle = () => {
     dispatch(toggleShuffle());
@@ -85,7 +175,7 @@ const PlayerControls = () => {
 
   // 切换循环模式
   const handleToggleRepeat = () => {
-    const modes = ['none', 'one', 'all'];
+    const modes = ["none", "one", "all"];
     const currentIndex = modes.indexOf(repeatMode);
     const nextIndex = (currentIndex + 1) % modes.length;
     dispatch(setRepeatMode(modes[nextIndex]));
@@ -98,59 +188,64 @@ const PlayerControls = () => {
   };
 
   // 默认封面
-  const defaultCover = 'https://via.placeholder.com/40x40?text=No+Cover';
+  const defaultCover = "https://via.placeholder.com/40x40?text=No+Cover";
 
   return (
     <ControlsWrapper>
       {/* 左侧：当前播放歌曲信息 */}
       <LeftSection>
-        <CoverThumbnail 
-          src={currentTrack?.coverPath || defaultCover} 
-          alt={currentTrack?.title || '默认封面'} 
+        <CoverThumbnail
+          src={currentTrack?.coverPath || defaultCover}
+          alt={currentTrack?.title || "默认封面"}
         />
         <TrackInfo>
-          <TrackTitle>{currentTrack?.title || '未播放歌曲'}</TrackTitle>
-          <TrackArtist>{currentTrack?.artist || '未知艺术家'}</TrackArtist>
+          <TrackTitle>{currentTrack?.title || "未播放歌曲"}</TrackTitle>
+          <TrackArtist>{currentTrack?.artist || "未知艺术家"}</TrackArtist>
         </TrackInfo>
       </LeftSection>
 
       {/* 中间：播放控制按钮 */}
       <CenterSection>
         <ControlButtons>
-          <Tooltip title={shuffle ? '取消随机播放' : '随机播放'}>
-            <ControlButton 
-              onClick={handleToggleShuffle} 
-              className={shuffle ? 'active' : ''}
+          <Tooltip title={shuffle ? "取消随机播放" : "随机播放"}>
+            <ControlButton
+              onClick={handleToggleShuffle}
+              className={shuffle ? "active" : ""}
             >
               <ShuffleOutlined />
             </ControlButton>
           </Tooltip>
 
           <Tooltip title="上一曲">
-            <ControlButton>
+            <ControlButton onClick={handlePrevious}>
               <StepBackwardOutlined />
             </ControlButton>
           </Tooltip>
 
-          <Tooltip title={isPlaying ? '暂停' : '播放'}>
+          <Tooltip title={isPlaying ? "暂停" : "播放"}>
             <PlayButton onClick={handleTogglePlay}>
               {isPlaying ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
             </PlayButton>
           </Tooltip>
 
           <Tooltip title="下一曲">
-            <ControlButton>
+            <ControlButton onClick={handleNext}>
               <StepForwardOutlined />
             </ControlButton>
           </Tooltip>
 
-          <Tooltip title={
-            repeatMode === 'none' ? '单曲循环' : 
-            repeatMode === 'one' ? '列表循环' : '取消循环'
-          }>
-            <ControlButton 
-              onClick={handleToggleRepeat} 
-              className={repeatMode !== 'none' ? 'active' : ''}
+          <Tooltip
+            title={
+              repeatMode === "none"
+                ? "单曲循环"
+                : repeatMode === "one"
+                  ? "列表循环"
+                  : "取消循环"
+            }
+          >
+            <ControlButton
+              onClick={handleToggleRepeat}
+              className={repeatMode !== "none" ? "active" : ""}
             >
               <ReloadOutlined />
             </ControlButton>
@@ -166,9 +261,9 @@ const PlayerControls = () => {
             max={duration || 100}
             onChange={handleProgressChange}
             tooltip={{ formatter: formatTime }}
-            trackStyle={{ backgroundColor: '#4A90E2' }}
-            handleStyle={{ borderColor: '#4A90E2', backgroundColor: '#fff' }}
-            railStyle={{ backgroundColor: 'var(--border-color)' }}
+            trackStyle={{ backgroundColor: "#4A90E2" }}
+            handleStyle={{ borderColor: "#4A90E2", backgroundColor: "#fff" }}
+            railStyle={{ backgroundColor: "var(--border-color)" }}
             className="progress-slider"
           />
           <TimeDisplay>{formatTime(duration)}</TimeDisplay>
@@ -178,7 +273,7 @@ const PlayerControls = () => {
       {/* 右侧：音量控制和其他功能 */}
       <RightSection>
         <VolumeControl>
-          <Tooltip title={isMuted ? '取消静音' : '静音'}>
+          <Tooltip title={isMuted ? "取消静音" : "静音"}>
             <VolumeButton onClick={handleToggleMute}>
               <SoundOutlined />
             </VolumeButton>
@@ -189,13 +284,13 @@ const PlayerControls = () => {
             max={1}
             step={0.01}
             onChange={handleVolumeChange}
-            trackStyle={{ backgroundColor: '#4A90E2' }}
-            handleStyle={{ borderColor: '#4A90E2', backgroundColor: '#fff' }}
-            railStyle={{ backgroundColor: 'var(--border-color)' }}
+            trackStyle={{ backgroundColor: "#4A90E2" }}
+            handleStyle={{ borderColor: "#4A90E2", backgroundColor: "#fff" }}
+            railStyle={{ backgroundColor: "var(--border-color)" }}
           />
         </VolumeControl>
 
-        <Tooltip title={isFullscreen ? '退出全屏' : '全屏模式'}>
+        <Tooltip title={isFullscreen ? "退出全屏" : "全屏模式"}>
           <ControlButton onClick={handleToggleFullscreen}>
             {isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
           </ControlButton>
@@ -311,7 +406,7 @@ const PlayButton = styled.button`
   box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
 
   &:hover {
-    background-color: #357ABD;
+    background-color: #357abd;
     transform: scale(1.05);
     box-shadow: 0 6px 16px rgba(74, 144, 226, 0.4);
   }
