@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:path_provider/path_provider.dart';
@@ -67,7 +66,7 @@ class PlayerProvider extends ChangeNotifier {
       _initialized = true;
       notifyListeners();
     } catch (e) {
-      debugPrint('SoLoud 初始化失败: $e');
+      // 静默处理初始化失败
     }
   }
 
@@ -87,7 +86,7 @@ class PlayerProvider extends ChangeNotifier {
         waveData = samples.sublist(256, 512);
       }
     } catch (e) {
-      // 忽略错误
+      // 静默处理错误，避免频繁打印日志
     }
   }
 
@@ -139,7 +138,9 @@ class PlayerProvider extends ChangeNotifier {
 
   void _startPositionTimer() {
     _positionTimer?.cancel();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (
+      _,
+    ) async {
       if (_currentHandle != null && isPlaying) {
         try {
           // 检查句柄是否有效

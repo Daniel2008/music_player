@@ -12,7 +12,12 @@ class PlaylistPanel extends StatelessWidget {
     final playlistProvider = context.watch<PlaylistProvider>();
     final playerProvider = context.watch<PlayerProvider>();
     final tracks = playlistProvider.playlist.tracks;
-    final current = playlistProvider.current;
+
+    // 安全获取当前曲目，防止索引越界
+    final hasValidIndex =
+        playlistProvider.currentIndex >= 0 &&
+        playlistProvider.currentIndex < tracks.length;
+    final current = hasValidIndex ? playlistProvider.current : null;
     final scheme = Theme.of(context).colorScheme;
 
     if (tracks.isEmpty) {
@@ -143,7 +148,9 @@ class PlaylistPanel extends StatelessWidget {
                 ),
                 onTap: () {
                   playlistProvider.setCurrentIndex(index);
-                  if (playlistProvider.current != null) {
+                  // 安全检查后再播放
+                  if (playlistProvider.currentIndex >= 0 &&
+                      playlistProvider.currentIndex < tracks.length) {
                     playerProvider.playTrack(playlistProvider.current!);
                   }
                 },

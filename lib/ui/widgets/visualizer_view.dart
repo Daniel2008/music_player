@@ -100,44 +100,28 @@ class VisualizerView extends StatefulWidget {
 class _VisualizerViewState extends State<VisualizerView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  final math.Random _rng = math.Random();
 
-  List<double> _levels = const [];
-  List<double> _targets = const [];
-  List<double> _peaks = const []; // 峰值记录
-  int _barCount = 0;
+  // 优化：使用固定大小的缓冲区，避免频繁分配
+  static const int maxBars = 128;
+  static const int maxParticles = 150;
+  static const int historyLength = 10;
 
+  final List<double> _levels = List.filled(maxBars, 0.0);
+  final List<double> _targets = List.filled(maxBars, 0.0);
+  final List<double> _peaks = List.filled(maxBars, 0.0);
+  final List<List<double>> _history = List.generate(
+    historyLength,
+    (_) => List.filled(maxBars, 0.0),
+  );
+
+  int _currentBarCount = 0;
   VisualizerStyle _style = VisualizerStyle.bars;
-
-  // 缓存播放状态
   bool _isPlaying = false;
-  // 缓存是否真正在播放音频（位置在持续变化）
-  bool _hasAudio = false;
-  // 缓存上一次的播放位置
-  Duration _lastPosition = Duration.zero;
-  // 上次位置变化的时间
-  DateTime _lastPositionChangeTime = DateTime.now();
-
-  // 节拍模拟 - 多层节奏
-  double _beatPhase = 0.0;
   double _beatIntensity = 0.0;
-  int _beatCounter = 0;
-  double _subBeatPhase = 0.0; // 副节拍
-  double _measurePhase = 0.0; // 小节相位
 
-  // 动态 BPM 模拟（80-160 BPM 范围内变化）
-  double _currentBPM = 128.0;
-  double _targetBPM = 128.0;
-  double _bpmChangeTimer = 0.0;
-
-  // 粒子系统
+  // 优化的粒子系统
   final List<_Particle> _particles = [];
-
-  // 历史数据（用于3D效果）
-  List<List<double>> _history = [];
-  static const int _historyLength = 12;
-
-  // 波浪偏移
+  final math.Random _rng = math.Random();
   double _waveOffset = 0.0;
 
   @override
@@ -150,26 +134,24 @@ class _VisualizerViewState extends State<VisualizerView>
     _controller.addListener(_tick);
   }
 
-  void _ensureBars(int n) {
-    if (_barCount == n) return;
-    _barCount = n;
-    _levels = List<double>.filled(n, 0.0);
-    _targets = List<double>.filled(n, 0.0);
-    _peaks = List<double>.filled(n, 0.0);
-    _history = List.generate(
-      _historyLength,
-      (_) => List<double>.filled(n, 0.0),
-    );
+  @override
+  void dispose() {
+    _controller.removeListener(_tick);
+    _controller.dispose();
+    _particles.clear();
+    super.dispose();
   }
 
+  // 优化：直接操作固定数组，避免创建新对象
   void _updateFromFFT(Float32List fftData, bool isPlaying) {
     _isPlaying = isPlaying;
 
-    if (fftData.isEmpty || _barCount == 0) return;
+    if (fftData.isEmpty || _currentBarCount == 0) return;
 
-    // 检查是否有有效的 FFT 数据（不全是0）
+    // 快速检查是否有有效数据
     bool hasData = false;
-    for (var i = 0; i < fftData.length && i < 50; i++) {
+    final checkLength = math.min(fftData.length, 50);
+    for (var i = 0; i < checkLength; i++) {
       if (fftData[i] > 0.01) {
         hasData = true;
         break;
@@ -177,201 +159,209 @@ class _VisualizerViewState extends State<VisualizerView>
     }
 
     if (!hasData || !isPlaying) {
-      // 没有有效数据时，缓慢衰减
-      for (var i = 0; i < _barCount; i++) {
-        _targets[i] = (_targets[i] * 0.9).clamp(0.0, 1.0);
+      // 衰减模式
+      for (var i = 0; i < _currentBarCount; i++) {
+        _targets[i] = _targets[i] * 0.92;
+        if (_targets[i] < 0.001) _targets[i] = 0.0;
       }
-      _beatIntensity = (_beatIntensity * 0.9).clamp(0.0, 1.0);
+      _beatIntensity *= 0.92;
       return;
     }
 
-    // 将 FFT 数据映射到柱子数量
     final fftLength = fftData.length;
-    for (var i = 0; i < _barCount; i++) {
-      // 使用对数映射，让低频部分有更多的柱子
-      final logIndex = (math.pow(i / _barCount, 1.5) * fftLength * 0.5).toInt();
-      final safeIndex = logIndex.clamp(0, fftLength - 1);
+    final step = fftLength / _currentBarCount / 2;
 
-      // 取相邻几个频率的平均值，让显示更平滑
-      double sum = 0;
-      int count = 0;
-      for (var j = -2; j <= 2; j++) {
-        final idx = (safeIndex + j).clamp(0, fftLength - 1);
-        sum += fftData[idx];
-        count++;
+    // 优化的频谱映射 - 平衡动态范围
+    for (var i = 0; i < _currentBarCount; i++) {
+      final start = (i * step).toInt();
+      final end = ((i + 1) * step).toInt();
+
+      // 计算区间平均值
+      double sum = 0.0;
+      for (var j = start; j <= end && j < fftLength; j++) {
+        sum += fftData[j];
       }
-      final value = sum / count;
+      final value = sum / (end - start + 1);
 
-      // 应用增益和限幅（降低增益使频谱能量更适中）
-      _targets[i] = value.clamp(0.0, 1.0);
+      // 使用对数压缩 + 平方根平衡，防止过高音量占满屏幕
+      // value 通常在 0-1 之间，但可能达到 2-3
+      // 转换为更平衡的线性范围
+      final compressed = math.sqrt(value).clamp(0.0, 1.0);
+
+      // 应用平滑调整：低音量时敏感，高音量时压缩
+      final adjusted = compressed * 0.85;
+
+      _targets[i] = adjusted;
     }
 
-    // 计算节拍强度（使用低频能量）
-    double bassEnergy = 0;
-    final bassRange = (fftLength * 0.1).toInt().clamp(1, fftLength);
-    for (var i = 0; i < bassRange; i++) {
-      bassEnergy += fftData[i];
+    // 优化的节拍检测 - 更保守的强度计算
+    double bassSum = 0.0;
+    final bassEnd = math.min((fftLength * 0.12).toInt(), fftLength);
+    for (var i = 0; i < bassEnd; i++) {
+      bassSum += fftData[i];
     }
-    _beatIntensity = (bassEnergy / bassRange * 1).clamp(0.0, 1.0);
+
+    // 使用平方根压缩，防止过强的节拍信号
+    _beatIntensity = (math.sqrt(bassSum / bassEnd) * 0.8).clamp(0.0, 0.8);
   }
 
   void _tick() {
-    if (!mounted || _barCount == 0) return;
+    if (!mounted || _currentBarCount == 0) return;
 
-    final dt = 0.016;
+    const dt = 0.016;
     _waveOffset += dt * 2.0;
 
     if (_isPlaying) {
-      // 使用真实 FFT 数据时，粒子效果基于节拍强度
-      final isStrongBeat = _beatIntensity > 0.6;
+      final isStrongBeat = _beatIntensity > 0.55;
       _updateParticles(dt, isStrongBeat);
     } else {
-      // 暂停时的呼吸效果
-      for (var i = 0; i < _barCount; i++) {
-        final pos = i / (_barCount - 1);
+      // 呼吸效果优化
+      for (var i = 0; i < _currentBarCount; i++) {
+        final pos = i / (_currentBarCount - 1);
         final breath =
             0.05 +
-            0.03 * math.sin(_waveOffset + pos * math.pi * 2) +
-            0.02 * math.sin(_waveOffset * 1.5 + pos * math.pi * 4);
-        _targets[i] = breath.clamp(0.0, 1.0);
+            0.02 * math.sin(_waveOffset + pos * math.pi * 2) +
+            0.01 * math.sin(_waveOffset * 1.5 + pos * math.pi * 4);
+        _targets[i] = breath;
       }
 
+      // 清理死亡粒子
       _particles.removeWhere((p) => p.life <= 0);
       for (var p in _particles) {
         p.life -= dt * 0.5;
       }
     }
 
-    // === 平滑跟随 ===
-    for (var i = 0; i < _barCount; i++) {
-      final current = _levels[i];
-      final target = _targets[i];
-      final diff = target - current;
+    // 平滑跟随优化
+    final fallSpeed = _isPlaying ? 0.25 : 0.15;
+    final riseSpeed = _isPlaying ? 0.6 : 0.4;
 
-      // 上升快，下降稍慢（让频谱看起来更自然）
-      final factor = diff > 0 ? 0.5 : 0.25;
-      _levels[i] = (current + diff * factor).clamp(0.0, 1.0);
+    for (var i = 0; i < _currentBarCount; i++) {
+      final diff = _targets[i] - _levels[i];
+      final factor = diff > 0 ? riseSpeed : fallSpeed;
+      _levels[i] += diff * factor;
 
-      // 更新峰值
+      // 限制范围
+      if (_levels[i] < 0.0) _levels[i] = 0.0;
+      if (_levels[i] > 1.0) _levels[i] = 1.0;
+
+      // 峰值衰减
       if (_levels[i] > _peaks[i]) {
         _peaks[i] = _levels[i];
       } else {
-        _peaks[i] = math.max(0, _peaks[i] - dt * 0.8);
+        _peaks[i] *= 0.95;
+        if (_peaks[i] < 0.001) _peaks[i] = 0.0;
       }
     }
 
-    // 更新历史记录
-    if (_history.isNotEmpty) {
-      _history.removeAt(0);
-      _history.add(List.from(_levels));
+    // 更新历史记录（优化版本）
+    if (_isPlaying) {
+      // 避免频繁的列表操作
+      for (var i = 0; i < historyLength - 1; i++) {
+        _history[i].setAll(0, _history[i + 1]);
+      }
+      _history[historyLength - 1].setAll(0, _levels);
     }
   }
 
   void _updateParticles(double dt, bool isStrongBeat) {
-    _particles.removeWhere((p) => p.life <= 0);
+    // 清理超出范围的粒子
+    _particles.removeWhere(
+      (p) => p.life <= 0 || p.x < -0.1 || p.x > 1.1 || p.y < -0.1 || p.y > 1.1,
+    );
 
-    // 更新现有粒子
+    // 限制粒子总数（性能保护）
+    if (_particles.length > maxParticles) {
+      _particles.removeRange(0, _particles.length - (maxParticles - 50));
+    }
+
+    // 更新现有粒子 - 降低粒子速度，防止过于混乱
+    final gravity = isStrongBeat ? 25.0 : 50.0; // 增加重力，让粒子更快消失
     for (var p in _particles) {
-      // 添加一些水平漂移
-      p.vx += (_rng.nextDouble() - 0.5) * 20 * dt;
-      p.vx *= 0.98; // 水平阻尼
+      // 水平漂移优化 - 限制漂移范围
+      p.vx += (_rng.nextDouble() - 0.5) * 8 * dt;
+      p.vx *= 0.95; // 增加阻尼
 
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-
-      // 重力效果，但强拍时减弱（粒子上升）
-      final gravity = isStrongBeat ? 20.0 : 60.0;
       p.vy += gravity * dt;
 
-      // 生命衰减
-      p.life -= dt * (isStrongBeat ? 0.6 : 1.0);
+      // 生命衰减 - 更快衰减
+      p.life -= dt * (isStrongBeat ? 1.0 : 1.5);
 
-      // 大小随生命值变化
-      p.size *= (0.99 - (1 - p.life) * 0.02);
+      // 大小变化 - 限制最小尺寸
+      p.size *= (0.97 - (1 - p.life) * 0.03);
+      if (p.size < 0.8) p.size = 0.8;
     }
 
-    // 计算能量指标
-    final avgLevel = _levels.isEmpty
-        ? 0.0
-        : _levels.reduce((a, b) => a + b) / _levels.length;
-
-    // 计算低频能量（中间区域）
-    final midStart = (_barCount * 0.3).round();
-    final midEnd = (_barCount * 0.7).round();
-    double bassLevel = 0;
-    if (midEnd > midStart) {
-      for (var i = midStart; i < midEnd; i++) {
-        bassLevel += _levels[i];
+    // 简化的能量计算 - 使用中频能量，避免低频过度贡献
+    double midLevel = 0.0;
+    if (_currentBarCount > 0) {
+      final start = (_currentBarCount * 0.2).toInt();
+      final end = (_currentBarCount * 0.7).toInt();
+      for (var i = start; i < end; i++) {
+        midLevel += _levels[i];
       }
-      bassLevel /= (midEnd - midStart);
+      midLevel /= (end - start);
     }
 
-    // 根据能量和节拍动态计算生成数量
-    int spawnCount = (avgLevel * 3).toInt();
-    if (isStrongBeat) {
-      spawnCount += (bassLevel * 12).toInt(); // 强拍时根据低频能量爆发
-    }
-    if (_beatIntensity > 0.5) {
-      spawnCount += (_beatIntensity * 6).toInt();
-    }
+    // 智能粒子生成 - 更保守的生成策略
+    if (midLevel > 0.2 || isStrongBeat) {
+      final spawnMultiplier = isStrongBeat ? 2 : 1; // 减少粒子生成数量
+      final spawnCount = (midLevel * spawnMultiplier).toInt().clamp(
+        0,
+        4,
+      ); // 最多4个
 
-    // 限制粒子总数
-    final maxParticles = 200;
-    spawnCount = math.min(spawnCount, maxParticles - _particles.length);
-
-    for (var i = 0; i < spawnCount; i++) {
-      if (_barCount <= 0) break;
-
-      // 优先从高能量区域生成粒子
-      int idx;
-      if (isStrongBeat && _rng.nextDouble() < 0.7) {
-        // 强拍时从中间（低频区）生成
-        idx = midStart + _rng.nextInt(math.max(1, midEnd - midStart));
-      } else {
-        // 随机位置，但偏向高能量区域
-        idx = _rng.nextInt(_barCount);
-        // 尝试找到更高能量的位置
-        for (var attempt = 0; attempt < 3; attempt++) {
-          final newIdx = _rng.nextInt(_barCount);
-          if (_levels[newIdx] > _levels[idx]) {
-            idx = newIdx;
-          }
+      for (var i = 0; i < spawnCount; i++) {
+        // 优先从中间区域生成（避免底部堆积）
+        int targetIndex = _findBalancedEnergyIndex();
+        if (targetIndex >= 0 && _levels[targetIndex] > 0.15) {
+          _spawnParticle(targetIndex, isStrongBeat);
         }
-      }
-
-      final level = _levels[idx];
-      final threshold = isStrongBeat ? 0.2 : 0.35;
-
-      if (level > threshold) {
-        // 根据节拍强度调整粒子属性
-        final energyBoost = isStrongBeat ? 1.5 : 1.0;
-        final sizeBoost = isStrongBeat ? 1.3 : 1.0;
-
-        _particles.add(
-          _Particle(
-            x: idx / _barCount,
-            y: 1.0 - level * 0.9,
-            vx: (_rng.nextDouble() - 0.5) * 40 * energyBoost,
-            vy: -_rng.nextDouble() * 120 * level * energyBoost,
-            size: (2 + _rng.nextDouble() * 5 * level) * sizeBoost,
-            life: 0.6 + _rng.nextDouble() * 1.0 + (isStrongBeat ? 0.4 : 0),
-            hue: _rng.nextDouble(),
-          ),
-        );
       }
     }
   }
 
-  @override
-  void dispose() {
-    _controller.removeListener(_tick);
-    _controller.dispose();
-    super.dispose();
+  int _findBalancedEnergyIndex() {
+    if (_currentBarCount == 0) return -1;
+
+    // 选择中间区域（30%-70%），避免底部和顶部的 extreme 区域
+    final regionStart = (_currentBarCount * 0.3).toInt();
+    final regionEnd = (_currentBarCount * 0.7).toInt();
+
+    double bestValue = 0.0;
+    int bestIndex = regionStart;
+
+    for (var i = regionStart; i < regionEnd; i++) {
+      if (_levels[i] > bestValue) {
+        bestValue = _levels[i];
+        bestIndex = i;
+      }
+    }
+
+    return bestValue > 0.15 ? bestIndex : -1;
+  }
+
+  void _spawnParticle(int targetIndex, bool isStrongBeat) {
+    final level = _levels[targetIndex];
+    final energyBoost = isStrongBeat ? 1.8 : 1.0;
+
+    _particles.add(
+      _Particle(
+        x: targetIndex / _currentBarCount,
+        y: 1.0 - level * 0.9,
+        vx: (_rng.nextDouble() - 0.5) * 30 * energyBoost,
+        vy: -_rng.nextDouble() * 100 * level * energyBoost,
+        size: (1.5 + _rng.nextDouble() * 4 * level) * energyBoost,
+        life: 0.7 + _rng.nextDouble() * 0.8 + (isStrongBeat ? 0.3 : 0),
+        hue: _rng.nextDouble(),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // 获取真实的 FFT 数据
     final playerProvider = context.watch<PlayerProvider>();
     final fftData = playerProvider.fftData;
     _updateFromFFT(fftData, playerProvider.isPlaying);
@@ -384,8 +374,14 @@ class _VisualizerViewState extends State<VisualizerView>
         final width = constraints.maxWidth.isFinite
             ? constraints.maxWidth
             : MediaQuery.sizeOf(context).width;
-        final count = (width / 6).floor().clamp(32, 128);
-        _ensureBars(count);
+
+        // 优化：更合理的柱子数量计算
+        final count = (width / 8).floor().clamp(24, 100);
+
+        // 只在数量变化时调整数组
+        if (count != _currentBarCount) {
+          _currentBarCount = count;
+        }
 
         return SizedBox(
           height: constraints.maxHeight.isFinite ? constraints.maxHeight : 180,
@@ -397,14 +393,15 @@ class _VisualizerViewState extends State<VisualizerView>
                     size: Size.infinite,
                     painter: _SpectrumPainter(
                       repaint: _controller,
-                      levels: _levels,
+                      levels: _levels.take(_currentBarCount).toList(),
+                      peaks: _peaks.take(_currentBarCount).toList(),
                       style: currentStyle,
                       color: scheme.primary,
                       secondaryColor: scheme.secondary,
                       tertiaryColor: scheme.tertiary,
                       faintColor: scheme.primary.withValues(alpha: 0.18),
                       particles: _particles,
-                      history: _history,
+                      history: _isPlaying ? _history : const [],
                       beatIntensity: _beatIntensity,
                       enableGlow: widget.enableGlow,
                     ),
@@ -467,6 +464,7 @@ class _Particle {
 class _SpectrumPainter extends CustomPainter {
   final Listenable repaint;
   final List<double> levels;
+  final List<double> peaks;
   final VisualizerStyle style;
   final Color color;
   final Color secondaryColor;
@@ -477,9 +475,14 @@ class _SpectrumPainter extends CustomPainter {
   final double beatIntensity;
   final bool enableGlow;
 
-  const _SpectrumPainter({
+  // 缓存画笔，避免重复创建
+  final Paint _paint = Paint()..isAntiAlias = true;
+  final Path _path = Path();
+
+  _SpectrumPainter({
     required this.repaint,
     required this.levels,
+    required this.peaks,
     required this.style,
     required this.color,
     required this.secondaryColor,
@@ -495,144 +498,167 @@ class _SpectrumPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (levels.isEmpty || size.width <= 0 || size.height <= 0) return;
 
-    final paint = Paint()
+    // 重新设置画笔属性（不使用 reset，因为 Paint 没有 reset 方法）
+    _paint
       ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
+      ..strokeWidth = 0.0
+      ..color = Colors.black
+      ..isAntiAlias = true
+      ..maskFilter = null
+      ..shader = null;
+
+    _path.reset();
 
     switch (style) {
       case VisualizerStyle.bars:
-        _paintBars(canvas, size, paint, mirrored: false);
+        _paintBars(canvas, size, false);
         break;
       case VisualizerStyle.mirroredBars:
-        _paintBars(canvas, size, paint, mirrored: true);
+        _paintBars(canvas, size, true);
         break;
       case VisualizerStyle.line:
-        _paintLine(canvas, size, paint);
+        _paintLine(canvas, size);
         break;
       case VisualizerStyle.dots:
-        _paintDots(canvas, size, paint);
+        _paintDots(canvas, size);
         break;
       case VisualizerStyle.circular:
-        _paintCircular(canvas, size, paint);
+        _paintCircular(canvas, size);
         break;
       case VisualizerStyle.wave:
-        _paintWave(canvas, size, paint);
+        _paintWave(canvas, size);
         break;
       case VisualizerStyle.particles:
-        _paintParticles(canvas, size, paint);
+        _paintParticles(canvas, size);
         break;
       case VisualizerStyle.flame:
-        _paintFlame(canvas, size, paint);
+        _paintFlame(canvas, size);
         break;
       case VisualizerStyle.radar:
-        _paintRadar(canvas, size, paint);
+        _paintRadar(canvas, size);
         break;
       case VisualizerStyle.ring:
-        _paintRing(canvas, size, paint);
+        _paintRing(canvas, size);
         break;
       case VisualizerStyle.gradient:
-        _paintGradientBars(canvas, size, paint);
+        _paintGradientBars(canvas, size);
         break;
       case VisualizerStyle.spectrum3D:
-        _paintSpectrum3D(canvas, size, paint);
+        _paintSpectrum3D(canvas, size);
         break;
     }
   }
 
-  void _paintBars(
-    Canvas canvas,
-    Size size,
-    Paint paint, {
-    required bool mirrored,
-  }) {
+  void _paintBars(Canvas canvas, Size size, bool mirrored) {
     final n = levels.length;
+    if (n == 0) return;
+
     const gap = 2.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 24.0);
-    final radius = Radius.circular(barWidth / 2);
+    final radius = barWidth / 2;
 
-    var x = 0.0;
+    // 限制最大高度，防止占满全屏
+    final maxHeight = size.height * 0.85;
+
+    // 批量绘制，减少状态切换
+    _paint.style = PaintingStyle.fill;
+
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
-      paint.color = Color.lerp(faintColor, color, v) ?? color;
+      if (v < 0.01) continue;
+
+      final interpColor = Color.lerp(faintColor, color, v);
+      _paint.color = interpColor ?? color;
+      final x = i * (barWidth + gap);
 
       if (!mirrored) {
-        final h = (v * size.height).clamp(2.0, size.height);
+        // 应用高度限制，使用对数曲线平滑高音量显示
+        final h = (math.pow(v, 0.7) * maxHeight).clamp(2.0, maxHeight);
         final rect = Rect.fromLTWH(x, size.height - h, barWidth, h);
         canvas.drawRRect(
-          RRect.fromRectAndCorners(rect, topLeft: radius, topRight: radius),
-          paint,
+          RRect.fromRectAndCorners(
+            rect,
+            topLeft: Radius.circular(radius),
+            topRight: Radius.circular(radius),
+          ),
+          _paint,
         );
 
         if (enableGlow && v > 0.5) {
-          paint.color = color.withValues(alpha: 0.3 * (v - 0.5) * 2);
-          paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+          final glowAlpha = math.min(0.3, (v - 0.5) * 0.4); // 限制发光强度
+          _paint.color = color.withValues(alpha: glowAlpha);
+          _paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
           canvas.drawRRect(
-            RRect.fromRectAndCorners(rect, topLeft: radius, topRight: radius),
-            paint,
+            RRect.fromRectAndCorners(
+              rect,
+              topLeft: Radius.circular(radius),
+              topRight: Radius.circular(radius),
+            ),
+            _paint,
           );
-          paint.maskFilter = null;
+          _paint.maskFilter = null;
         }
       } else {
         final half = size.height / 2;
-        final h = (v * half).clamp(1.0, half);
+        final h = (math.pow(v, 0.7) * maxHeight / 2).clamp(1.0, maxHeight / 2);
+
+        // 上半部分
         final top = Rect.fromLTWH(x, half - h, barWidth, h);
-        final bottom = Rect.fromLTWH(x, half, barWidth, h);
         canvas.drawRRect(
-          RRect.fromRectAndCorners(top, topLeft: radius, topRight: radius),
-          paint,
+          RRect.fromRectAndCorners(
+            top,
+            topLeft: Radius.circular(radius),
+            topRight: Radius.circular(radius),
+          ),
+          _paint,
         );
+
+        // 下半部分
+        final bottom = Rect.fromLTWH(x, half, barWidth, h);
         canvas.drawRRect(
           RRect.fromRectAndCorners(
             bottom,
-            bottomLeft: radius,
-            bottomRight: radius,
+            bottomLeft: Radius.circular(radius),
+            bottomRight: Radius.circular(radius),
           ),
-          paint,
+          _paint,
         );
       }
-
-      x += barWidth + gap;
     }
   }
 
-  void _paintLine(Canvas canvas, Size size, Paint paint) {
+  void _paintLine(Canvas canvas, Size size) {
     final n = levels.length;
     if (n < 2) return;
 
     final dx = size.width / (n - 1);
     final mid = size.height * 0.55;
-    final amp = size.height * 0.45;
+    // 限制振幅，防止超出视口
+    final amp = size.height * 0.35;
 
-    final path = Path();
+    _path.moveTo(0, mid);
     for (var i = 0; i < n; i++) {
-      final v = levels[i].clamp(0.0, 1.0);
-      final x = dx * i;
-      final y = mid - v * amp;
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
+      final v = math.pow(levels[i].clamp(0.0, 1.0), 0.8);
+      _path.lineTo(i * dx, mid - v * amp);
     }
 
-    final fill = Path.from(path)
+    // 填充区域
+    _paint.style = PaintingStyle.fill;
+    _paint.color = faintColor;
+    final fillPath = Path.from(_path)
       ..lineTo(size.width, size.height)
       ..lineTo(0, size.height)
       ..close();
+    canvas.drawPath(fillPath, _paint);
 
-    paint
-      ..style = PaintingStyle.fill
-      ..color = faintColor;
-    canvas.drawPath(fill, paint);
-
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = color;
-    canvas.drawPath(path, paint);
+    // 边缘线
+    _paint.style = PaintingStyle.stroke;
+    _paint.strokeWidth = 2;
+    _paint.color = color;
+    canvas.drawPath(_path, _paint);
   }
 
-  void _paintDots(Canvas canvas, Size size, Paint paint) {
+  void _paintDots(Canvas canvas, Size size) {
     final n = levels.length;
     if (n == 0) return;
 
@@ -640,141 +666,98 @@ class _SpectrumPainter extends CustomPainter {
     final colWidth = ((size.width - gapX * (n - 1)) / n).clamp(3.0, 18.0);
     final dotRadius = (colWidth / 3).clamp(1.2, 3.5);
     final stepY = dotRadius * 2.6;
-    // 计算能够填满整个高度的行数
     final rows = (size.height / stepY).floor();
     if (rows <= 0) return;
 
-    // 计算垂直偏移，使点阵居中
     final totalHeight = rows * stepY;
     final offsetY = (size.height - totalHeight) / 2;
 
-    var x = 0.0;
+    _paint.style = PaintingStyle.fill;
+
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
       final active = (v * rows).round().clamp(0, rows);
+      final x = i * (colWidth + gapX);
 
       for (var r = 0; r < rows; r++) {
         final isOn = r < active;
-        final t = isOn ? (r / (rows - 1).clamp(1, rows)).clamp(0.0, 1.0) : 0.0;
-        paint.color = isOn
-            ? (Color.lerp(faintColor, color, 0.35 + 0.65 * t) ?? color)
+        if (!isOn && v < 0.1) continue;
+
+        final cy = size.height - offsetY - (r + 0.5) * stepY;
+        final colorValue = 0.35 + 0.65 * (r / rows);
+        final interpColor = Color.lerp(faintColor, color, colorValue);
+        _paint.color = isOn
+            ? (interpColor ?? color)
             : faintColor.withValues(alpha: 0.08);
 
-        final cx = x + colWidth / 2;
-        // 从底部开始绘制，填满整个高度
-        final cy = size.height - offsetY - (r + 0.5) * stepY;
-        canvas.drawCircle(Offset(cx, cy), dotRadius, paint);
+        canvas.drawCircle(Offset(x + colWidth / 2, cy), dotRadius, _paint);
       }
-
-      x += colWidth + gapX;
     }
   }
 
-  void _paintCircular(Canvas canvas, Size size, Paint paint) {
+  void _paintCircular(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final baseRadius = math.min(size.width, size.height) * 0.25;
-    final maxRadius = math.min(size.width, size.height) * 0.45;
+    final maxExtension = math.min(size.width, size.height) * 0.35; // 限制最大扩展
     final n = levels.length;
 
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = faintColor;
-    canvas.drawCircle(center, baseRadius, paint);
+    // 基础圆圈
+    _paint.style = PaintingStyle.stroke;
+    _paint.strokeWidth = 2;
+    _paint.color = faintColor;
+    canvas.drawCircle(center, baseRadius, _paint);
 
+    // 频谱线
+    _paint.style = PaintingStyle.stroke;
     for (var i = 0; i < n; i++) {
       final angle = (i / n) * 2 * math.pi - math.pi / 2;
-      final v = levels[i].clamp(0.0, 1.0);
-      final r = baseRadius + v * (maxRadius - baseRadius);
+      final v = math.pow(levels[i].clamp(0.0, 1.0), 0.8); // 压缩高音量
+      final r = baseRadius + v * maxExtension;
 
       final x1 = center.dx + baseRadius * math.cos(angle);
       final y1 = center.dy + baseRadius * math.sin(angle);
       final x2 = center.dx + r * math.cos(angle);
       final y2 = center.dy + r * math.sin(angle);
 
-      paint
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = (size.width / n * 0.8).clamp(1.0, 4.0)
-        ..color = Color.lerp(faintColor, color, v) ?? color;
-
-      canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
+      final widthValue = (size.width / n * 0.7).clamp(1.0, 3.0);
+      _paint.strokeWidth = widthValue.toDouble();
+      final interpColor = Color.lerp(faintColor, color, v.toDouble());
+      _paint.color = interpColor ?? color;
+      canvas.drawLine(Offset(x1, y1), Offset(x2, y2), _paint);
 
       if (enableGlow && v > 0.6) {
-        paint
-          ..color = color.withValues(alpha: 0.4 * (v - 0.6) / 0.4)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-        canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
-        paint.maskFilter = null;
+        final glowAlpha = math.min(0.3, (v - 0.6) * 0.5);
+        _paint.color = color.withValues(alpha: glowAlpha);
+        _paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+        canvas.drawLine(Offset(x1, y1), Offset(x2, y2), _paint);
+        _paint.maskFilter = null;
       }
     }
 
-    final breathRadius = baseRadius * 0.3 * (0.8 + 0.2 * beatIntensity);
-    paint
-      ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.3 + 0.3 * beatIntensity);
-    canvas.drawCircle(center, breathRadius, paint);
+    // 中心呼吸 - 限制大小
+    final breathRadius = baseRadius * 0.25 * (0.8 + 0.15 * beatIntensity);
+    _paint.style = PaintingStyle.fill;
+    _paint.color = color.withValues(alpha: 0.25 + 0.2 * beatIntensity);
+    canvas.drawCircle(center, breathRadius, _paint);
   }
 
-  void _paintWave(Canvas canvas, Size size, Paint paint) {
+  void _paintWave(Canvas canvas, Size size) {
     final n = levels.length;
     if (n < 2) return;
 
     final dx = size.width / (n - 1);
     final mid = size.height / 2;
-    final amp = size.height * 0.45; // 增大振幅
+    final amp = size.height * 0.45;
 
-    final pathTop = Path();
-    final pathBottom = Path();
-
-    // 使用三次贝塞尔曲线实现更平滑的波浪
-    final points = <Offset>[];
-    final pointsBottom = <Offset>[];
-
+    // 优化：直接计算，避免复杂对象
+    _path.moveTo(0, mid);
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
-      final x = dx * i;
-      points.add(Offset(x, mid - v * amp));
-      pointsBottom.add(Offset(x, mid + v * amp));
+      _path.lineTo(i * dx, mid - v * amp);
     }
 
-    // 绘制上半部分波浪
-    pathTop.moveTo(points[0].dx, points[0].dy);
-    for (var i = 0; i < points.length - 1; i++) {
-      final p0 = i > 0 ? points[i - 1] : points[0];
-      final p1 = points[i];
-      final p2 = points[i + 1];
-      final p3 = i < points.length - 2
-          ? points[i + 2]
-          : points[points.length - 1];
-
-      // Catmull-Rom 样条转三次贝塞尔
-      final cp1x = p1.dx + (p2.dx - p0.dx) / 6;
-      final cp1y = p1.dy + (p2.dy - p0.dy) / 6;
-      final cp2x = p2.dx - (p3.dx - p1.dx) / 6;
-      final cp2y = p2.dy - (p3.dy - p1.dy) / 6;
-
-      pathTop.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
-    }
-
-    // 绘制下半部分波浪
-    pathBottom.moveTo(pointsBottom[0].dx, pointsBottom[0].dy);
-    for (var i = 0; i < pointsBottom.length - 1; i++) {
-      final p0 = i > 0 ? pointsBottom[i - 1] : pointsBottom[0];
-      final p1 = pointsBottom[i];
-      final p2 = pointsBottom[i + 1];
-      final p3 = i < pointsBottom.length - 2
-          ? pointsBottom[i + 2]
-          : pointsBottom[pointsBottom.length - 1];
-
-      final cp1x = p1.dx + (p2.dx - p0.dx) / 6;
-      final cp1y = p1.dy + (p2.dy - p0.dy) / 6;
-      final cp2x = p2.dx - (p3.dx - p1.dx) / 6;
-      final cp2y = p2.dy - (p3.dy - p1.dy) / 6;
-
-      pathBottom.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.dx, p2.dy);
-    }
-
-    // 渐变填充
+    // 填充
+    _paint.style = PaintingStyle.fill;
     final gradient = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
@@ -786,83 +769,70 @@ class _SpectrumPainter extends CustomPainter {
       ],
       stops: const [0.0, 0.4, 0.6, 1.0],
     );
+    _paint.shader = gradient.createShader(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+    );
 
-    // 上半部分填充
-    final fillPath = Path()
-      ..addPath(pathTop, Offset.zero)
+    final fillPath = Path.from(_path)
       ..lineTo(size.width, mid)
       ..lineTo(0, mid)
       ..close();
+    canvas.drawPath(fillPath, _paint);
+    _paint.shader = null;
 
-    // 下半部分填充
-    final fillPath2 = Path()
-      ..moveTo(0, mid)
-      ..addPath(pathBottom, Offset.zero)
-      ..lineTo(size.width, mid)
-      ..close();
+    // 边缘
+    _paint.style = PaintingStyle.stroke;
+    _paint.strokeWidth = 2.5;
+    _paint.strokeCap = StrokeCap.round;
+    _paint.color = color;
+    canvas.drawPath(_path, _paint);
 
-    paint
-      ..style = PaintingStyle.fill
-      ..shader = gradient.createShader(
-        Rect.fromLTWH(0, 0, size.width, size.height),
-      );
-
-    canvas.drawPath(fillPath, paint);
-    canvas.drawPath(fillPath2, paint);
-    paint.shader = null;
-
-    // 绘制波浪轮廓线
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = color;
-    canvas.drawPath(pathTop, paint);
-    canvas.drawPath(pathBottom, paint);
-
-    // 添加发光效果
     if (enableGlow) {
-      paint
-        ..color = color.withValues(alpha: 0.4)
-        ..strokeWidth = 4
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      canvas.drawPath(pathTop, paint);
-      canvas.drawPath(pathBottom, paint);
-      paint.maskFilter = null;
+      _paint.strokeWidth = 4;
+      _paint.color = color.withValues(alpha: 0.4);
+      _paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      canvas.drawPath(_path, _paint);
+      _paint.maskFilter = null;
     }
 
-    // 绘制中线
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = color.withValues(alpha: 0.3);
-    canvas.drawLine(Offset(0, mid), Offset(size.width, mid), paint);
+    // 中线
+    _paint.strokeWidth = 1;
+    _paint.color = color.withValues(alpha: 0.3);
+    canvas.drawLine(Offset(0, mid), Offset(size.width, mid), _paint);
   }
 
-  void _paintParticles(Canvas canvas, Size size, Paint paint) {
+  void _paintParticles(Canvas canvas, Size size) {
+    // 背景柱
     final n = levels.length;
     const gap = 3.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 20.0);
 
-    var x = 0.0;
+    _paint.style = PaintingStyle.fill;
+    _paint.color = faintColor.withValues(alpha: 0.3);
+
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
+      if (v < 0.05) continue;
+
       final h = (v * size.height * 0.6).clamp(2.0, size.height);
-      paint.color = faintColor.withValues(alpha: 0.3);
-      canvas.drawRect(Rect.fromLTWH(x, size.height - h, barWidth, h), paint);
-      x += barWidth + gap;
+      final x = i * (barWidth + gap);
+      canvas.drawRect(Rect.fromLTWH(x, size.height - h, barWidth, h), _paint);
     }
 
+    // 粒子
     for (final p in particles) {
       if (p.life <= 0) continue;
 
       final px = p.x * size.width;
       final py = p.y * size.height;
+      if (px < -10 ||
+          px > size.width + 10 ||
+          py < -10 ||
+          py > size.height + 10) {
+        continue;
+      }
 
-      if (px < 0 || px > size.width || py < 0 || py > size.height) continue;
-
-      final alpha = (p.life.clamp(0.0, 1.0) * 0.8);
+      final alpha = p.life.clamp(0.0, 1.0) * 0.8;
       final particleColor = HSLColor.fromAHSL(
         1.0,
         p.hue * 60 + 200,
@@ -870,208 +840,200 @@ class _SpectrumPainter extends CustomPainter {
         0.6,
       ).toColor();
 
-      paint
-        ..style = PaintingStyle.fill
-        ..color = particleColor.withValues(alpha: alpha);
-
-      canvas.drawCircle(Offset(px, py), p.size, paint);
+      _paint.style = PaintingStyle.fill;
+      _paint.color = particleColor.withValues(alpha: alpha);
+      canvas.drawCircle(Offset(px, py), p.size, _paint);
 
       if (enableGlow) {
-        paint
-          ..color = particleColor.withValues(alpha: alpha * 0.5)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, p.size * 2);
-        canvas.drawCircle(Offset(px, py), p.size * 1.5, paint);
-        paint.maskFilter = null;
+        _paint.color = particleColor.withValues(alpha: alpha * 0.5);
+        _paint.maskFilter = MaskFilter.blur(BlurStyle.normal, p.size * 2);
+        canvas.drawCircle(Offset(px, py), p.size * 1.5, _paint);
+        _paint.maskFilter = null;
       }
     }
   }
 
-  void _paintFlame(Canvas canvas, Size size, Paint paint) {
+  void _paintFlame(Canvas canvas, Size size) {
     final n = levels.length;
     const gap = 2.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(3.0, 18.0);
 
-    var x = 0.0;
-    for (var i = 0; i < n; i++) {
-      final v = levels[i].clamp(0.0, 1.0);
-      // 限制最大高度，避免遮挡
-      final maxH = size.height * 0.85;
-      final h = (v * maxH).clamp(4.0, maxH);
+    _paint.style = PaintingStyle.fill;
 
-      final rect = Rect.fromLTWH(x, size.height - h, barWidth, h);
+    for (var i = 0; i < n; i++) {
+      final v = math.pow(levels[i].clamp(0.0, 1.0), 0.75); // 压缩火焰高度
+      if (v < 0.05) continue;
+
+      final maxH = size.height * 0.65; // 限制最高为65%
+      final h = (v * maxH).clamp(4.0, maxH);
+      final x = i * (barWidth + gap);
 
       final gradient = LinearGradient(
         begin: Alignment.bottomCenter,
         end: Alignment.topCenter,
-        colors: [
-          const Color(0xFFFF4500),
-          const Color(0xFFFF6B00),
-          const Color(0xFFFFD700),
-          const Color(0xFFFFFF00).withValues(alpha: 0.7),
-          const Color(0xFFFFFFFF).withValues(alpha: 0.2),
+        colors: const [
+          Color(0xFFFF4500),
+          Color(0xFFFF6B00),
+          Color(0xFFFFD700),
+          Color(0xFFFFFF00),
         ],
-        stops: const [0.0, 0.35, 0.65, 0.88, 1.0],
+        stops: const [0.0, 0.4, 0.7, 1.0],
       );
 
-      paint
-        ..style = PaintingStyle.fill
-        ..shader = gradient.createShader(rect);
+      _paint.shader = gradient.createShader(
+        Rect.fromLTWH(x, size.height - h, barWidth, h),
+      );
 
-      final flamePath = Path();
-      flamePath.moveTo(x, size.height);
-      flamePath.lineTo(x, size.height - h * 0.75);
+      _path.reset();
+      _path.moveTo(x, size.height);
+      _path.lineTo(x, size.height - h * 0.75);
 
       final waveOffset =
           math.sin(i * 0.6 + beatIntensity * math.pi * 2) * barWidth * 0.25;
-      flamePath.quadraticBezierTo(
+      _path.quadraticBezierTo(
         x + barWidth / 2 + waveOffset,
         size.height - h - 2,
         x + barWidth,
         size.height - h * 0.75,
       );
+      _path.lineTo(x + barWidth, size.height);
+      _path.close();
 
-      flamePath.lineTo(x + barWidth, size.height);
-      flamePath.close();
-
-      canvas.drawPath(flamePath, paint);
-      paint.shader = null;
-
-      x += barWidth + gap;
+      canvas.drawPath(_path, _paint);
+      _paint.shader = null;
     }
   }
 
-  void _paintRadar(Canvas canvas, Size size, Paint paint) {
+  void _paintRadar(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final maxRadius = math.min(size.width, size.height) * 0.45;
     final n = levels.length;
 
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.5
-      ..color = faintColor.withValues(alpha: 0.3);
+    // 网格
+    _paint.style = PaintingStyle.stroke;
+    _paint.strokeWidth = 0.5;
+    _paint.color = faintColor.withValues(alpha: 0.3);
 
     for (var r = 1; r <= 4; r++) {
-      canvas.drawCircle(center, maxRadius * r / 4, paint);
+      canvas.drawCircle(center, maxRadius * r / 4, _paint);
     }
 
     for (var i = 0; i < 8; i++) {
       final angle = i * math.pi / 4;
-      final x = center.dx + maxRadius * math.cos(angle);
-      final y = center.dy + maxRadius * math.sin(angle);
-      canvas.drawLine(center, Offset(x, y), paint);
+      canvas.drawLine(
+        center,
+        Offset(
+          center.dx + maxRadius * math.cos(angle),
+          center.dy + maxRadius * math.sin(angle),
+        ),
+        _paint,
+      );
     }
 
-    final path = Path();
+    // 频谱形状
+    _path.reset();
     for (var i = 0; i < n; i++) {
       final angle = (i / n) * 2 * math.pi - math.pi / 2;
       final v = levels[i].clamp(0.0, 1.0);
       final r = maxRadius * (0.1 + 0.9 * v);
-
       final x = center.dx + r * math.cos(angle);
       final y = center.dy + r * math.sin(angle);
 
       if (i == 0) {
-        path.moveTo(x, y);
+        _path.moveTo(x, y);
       } else {
-        path.lineTo(x, y);
+        _path.lineTo(x, y);
       }
     }
-    path.close();
+    _path.close();
 
-    paint
-      ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.3);
-    canvas.drawPath(path, paint);
+    _paint.style = PaintingStyle.fill;
+    _paint.color = color.withValues(alpha: 0.3);
+    canvas.drawPath(_path, _paint);
 
-    paint
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = color;
-    canvas.drawPath(path, paint);
+    _paint.style = PaintingStyle.stroke;
+    _paint.strokeWidth = 2;
+    _paint.color = color;
+    canvas.drawPath(_path, _paint);
 
-    // 扫描线效果
+    // 扫描线
     final scanAngle = beatIntensity * 2 * math.pi;
     final scanX = center.dx + maxRadius * math.cos(scanAngle - math.pi / 2);
     final scanY = center.dy + maxRadius * math.sin(scanAngle - math.pi / 2);
-    paint
-      ..strokeWidth = 3
-      ..color = color.withValues(alpha: 0.8);
-    canvas.drawLine(center, Offset(scanX, scanY), paint);
+    _paint.strokeWidth = 3;
+    _paint.color = color.withValues(alpha: 0.8);
+    canvas.drawLine(center, Offset(scanX, scanY), _paint);
   }
 
-  void _paintRing(Canvas canvas, Size size, Paint paint) {
+  void _paintRing(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final baseRadius = math.min(size.width, size.height) * 0.2;
-    final maxRadius = math.min(size.width, size.height) * 0.45;
+    final baseRadius = math.min(size.width, size.height) * 0.18;
+    final maxExtension = math.min(size.width, size.height) * 0.25; // 限制扩展距离
     final n = levels.length;
 
-    // 多层环形
+    // 多层环
     for (var layer = 0; layer < 3; layer++) {
-      final layerRadius = baseRadius + (maxRadius - baseRadius) * layer / 2;
-      final path = Path();
+      final layerRadius = baseRadius + maxExtension * layer / 3;
+      _path.reset();
 
       for (var i = 0; i < n; i++) {
         final angle = (i / n) * 2 * math.pi - math.pi / 2;
-        final v = levels[i].clamp(0.0, 1.0);
-        final offset = v * (maxRadius - baseRadius) * 0.3 * (1 - layer * 0.3);
+        final v = math.pow(levels[i].clamp(0.0, 1.0), 0.85); // 压缩显示
+        final offset = v * maxExtension * 0.4 * (1 - layer * 0.25);
         final r = layerRadius + offset;
-
         final x = center.dx + r * math.cos(angle);
         final y = center.dy + r * math.sin(angle);
 
         if (i == 0) {
-          path.moveTo(x, y);
+          _path.moveTo(x, y);
         } else {
-          path.lineTo(x, y);
+          _path.lineTo(x, y);
         }
       }
-      path.close();
+      _path.close();
 
       final alpha = 0.6 - layer * 0.15;
-      paint
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3 - layer * 0.8
-        ..color = Color.lerp(
-          color,
-          secondaryColor,
-          layer / 3,
-        )!.withValues(alpha: alpha);
-      canvas.drawPath(path, paint);
+      _paint.style = PaintingStyle.stroke;
+      final strokeValue = (3 - layer * 0.8).clamp(1.0, 3.0).toDouble();
+      _paint.strokeWidth = strokeValue;
+      final layerColor = Color.lerp(color, secondaryColor, layer / 3);
+      _paint.color = (layerColor ?? color).withValues(alpha: alpha);
+      canvas.drawPath(_path, _paint);
 
       if (enableGlow && layer == 0) {
-        paint
-          ..color = color.withValues(alpha: 0.2)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-        canvas.drawPath(path, paint);
-        paint.maskFilter = null;
+        _paint.color = color.withValues(alpha: 0.15);
+        _paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+        canvas.drawPath(_path, _paint);
+        _paint.maskFilter = null;
       }
     }
 
-    // 中心点
-    paint
-      ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.5 + 0.3 * beatIntensity);
+    // 中心点 - 限制大小
+    _paint.style = PaintingStyle.fill;
+    _paint.color = color.withValues(alpha: 0.3 + 0.2 * beatIntensity);
     canvas.drawCircle(
       center,
-      baseRadius * 0.15 * (1 + 0.3 * beatIntensity),
-      paint,
+      baseRadius * 0.12 * (1 + 0.2 * beatIntensity),
+      _paint,
     );
   }
 
-  void _paintGradientBars(Canvas canvas, Size size, Paint paint) {
+  void _paintGradientBars(Canvas canvas, Size size) {
     final n = levels.length;
     const gap = 2.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 24.0);
-    final radius = Radius.circular(barWidth / 2);
+    final radius = barWidth / 2;
 
-    var x = 0.0;
+    _paint.style = PaintingStyle.fill;
+
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
-      // 限制最大高度，避免遮挡
+      if (v < 0.05) continue;
+
       final maxH = size.height * 0.9;
       final h = (v * maxH).clamp(2.0, maxH);
+      final x = i * (barWidth + gap);
 
-      // 彩虹渐变
       final hue = (i / n) * 360;
       final barColor = HSLColor.fromAHSL(
         1.0,
@@ -1090,36 +1052,37 @@ class _SpectrumPainter extends CustomPainter {
         ],
       );
 
-      final rect = Rect.fromLTWH(x, size.height - h, barWidth, h);
-
-      paint
-        ..style = PaintingStyle.fill
-        ..shader = gradient.createShader(rect);
-
+      _paint.shader = gradient.createShader(
+        Rect.fromLTWH(x, size.height - h, barWidth, h),
+      );
       canvas.drawRRect(
-        RRect.fromRectAndCorners(rect, topLeft: radius, topRight: radius),
-        paint,
+        RRect.fromRectAndCorners(
+          Rect.fromLTWH(x, size.height - h, barWidth, h),
+          topLeft: Radius.circular(radius),
+          topRight: Radius.circular(radius),
+        ),
+        _paint,
       );
 
-      // 发光效果
       if (enableGlow && v > 0.5) {
-        paint
-          ..shader = null
-          ..color = barColor.withValues(alpha: 0.3 * (v - 0.5) * 2)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+        _paint.shader = null;
+        _paint.color = barColor.withValues(alpha: 0.3 * (v - 0.5) * 2);
+        _paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
         canvas.drawRRect(
-          RRect.fromRectAndCorners(rect, topLeft: radius, topRight: radius),
-          paint,
+          RRect.fromRectAndCorners(
+            Rect.fromLTWH(x, size.height - h, barWidth, h),
+            topLeft: Radius.circular(radius),
+            topRight: Radius.circular(radius),
+          ),
+          _paint,
         );
-        paint.maskFilter = null;
+        _paint.maskFilter = null;
       }
-
-      x += barWidth + gap;
     }
-    paint.shader = null;
+    _paint.shader = null;
   }
 
-  void _paintSpectrum3D(Canvas canvas, Size size, Paint paint) {
+  void _paintSpectrum3D(Canvas canvas, Size size) {
     if (history.isEmpty) return;
 
     final n = levels.length;
@@ -1130,9 +1093,10 @@ class _SpectrumPainter extends CustomPainter {
     final maxHeight = size.height * 0.7;
 
     // 从后往前绘制
+    _paint.style = PaintingStyle.fill;
     for (var layer = 0; layer < layerCount; layer++) {
       final layerData = history[layer];
-      if (layerData.length != n) continue;
+      if (layerData.length < n) continue;
 
       final depth = layer / layerCount;
       final yOffset = -layer * layerOffset;
@@ -1145,50 +1109,38 @@ class _SpectrumPainter extends CustomPainter {
 
       for (var i = 0; i < n; i++) {
         final v = layerData[i].clamp(0.0, 1.0);
-        final h = (v * maxHeight * scale).clamp(1.0, maxHeight);
+        if (v < 0.01) continue;
 
-        final layerColor = Color.lerp(
+        final h = (v * maxHeight * scale).clamp(1.0, maxHeight);
+        _paint.color = Color.lerp(
           color.withValues(alpha: alpha),
           faintColor.withValues(alpha: alpha * 0.5),
           depth,
         )!;
 
-        paint
-          ..style = PaintingStyle.fill
-          ..color = layerColor;
-
-        final rect = Rect.fromLTWH(
-          x,
-          size.height - h + yOffset,
-          scaledBarWidth,
-          h,
+        canvas.drawRect(
+          Rect.fromLTWH(x, size.height - h + yOffset, scaledBarWidth, h),
+          _paint,
         );
-
-        canvas.drawRect(rect, paint);
-
         x += scaledBarWidth + scaledGap;
       }
     }
 
-    // 最前面一层（当前数据）带发光
+    // 前景
     var x = 0.0;
     for (var i = 0; i < n; i++) {
       final v = levels[i].clamp(0.0, 1.0);
+      if (v < 0.01) continue;
+
       final h = (v * maxHeight).clamp(2.0, maxHeight);
-
-      paint
-        ..style = PaintingStyle.fill
-        ..color = color;
-
-      final rect = Rect.fromLTWH(x, size.height - h, barWidth, h);
-      canvas.drawRect(rect, paint);
+      _paint.color = color;
+      canvas.drawRect(Rect.fromLTWH(x, size.height - h, barWidth, h), _paint);
 
       if (enableGlow && v > 0.5) {
-        paint
-          ..color = color.withValues(alpha: 0.4 * (v - 0.5) * 2)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-        canvas.drawRect(rect, paint);
-        paint.maskFilter = null;
+        _paint.color = color.withValues(alpha: 0.4 * (v - 0.5) * 2);
+        _paint.maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+        canvas.drawRect(Rect.fromLTWH(x, size.height - h, barWidth, h), _paint);
+        _paint.maskFilter = null;
       }
 
       x += barWidth + gap;
@@ -1197,9 +1149,20 @@ class _SpectrumPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SpectrumPainter oldDelegate) {
-    return oldDelegate.style != style ||
-        oldDelegate.color != color ||
-        oldDelegate.faintColor != faintColor ||
-        oldDelegate.enableGlow != enableGlow;
+    // 优化：更精确的重绘判断
+    if (oldDelegate.style != style) return true;
+    if (oldDelegate.color != color) return true;
+    if (oldDelegate.faintColor != faintColor) return true;
+    if (oldDelegate.enableGlow != enableGlow) return true;
+
+    // 检查数据是否有显著变化
+    if (levels.length != oldDelegate.levels.length) return true;
+
+    // 简单的数据差异检查
+    for (var i = 0; i < levels.length && i < oldDelegate.levels.length; i++) {
+      if ((levels[i] - oldDelegate.levels[i]).abs() > 0.01) return true;
+    }
+
+    return false;
   }
 }

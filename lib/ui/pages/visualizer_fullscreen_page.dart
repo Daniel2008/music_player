@@ -77,7 +77,12 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     final scheme = Theme.of(context).colorScheme;
     final player = context.watch<PlayerProvider>();
     final playlist = context.watch<PlaylistProvider>();
-    final currentTrack = playlist.current;
+
+    // 安全获取当前曲目，防止索引越界
+    final hasValidIndex =
+        playlist.currentIndex >= 0 &&
+        playlist.currentIndex < playlist.tracks.length;
+    final currentTrack = hasValidIndex ? playlist.current : null;
 
     return CallbackShortcuts(
       bindings: {
@@ -88,9 +93,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
           if (player.isPlaying) {
             player.pause();
           } else {
-            final current = playlist.current;
-            if (current != null && player.duration == Duration.zero) {
-              await player.playTrack(current);
+            // 安全检查后再播放
+            if (hasValidIndex && player.duration == Duration.zero) {
+              await player.playTrack(playlist.current!);
             } else {
               player.play();
             }
@@ -334,6 +339,11 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     PlayerProvider player,
     PlaylistProvider playlist,
   ) {
+    // 安全获取当前曲目，防止索引越界
+    final hasValidIndex =
+        playlist.currentIndex >= 0 &&
+        playlist.currentIndex < playlist.tracks.length;
+
     return Container(
       padding: EdgeInsets.fromLTRB(
         24,
@@ -420,7 +430,8 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                 color: Colors.white,
                 onPressed: () async {
                   playlist.previous();
-                  if (playlist.current != null) {
+                  // 安全检查后再播放
+                  if (hasValidIndex) {
                     await player.playTrack(playlist.current!);
                   }
                 },
@@ -454,9 +465,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                     if (player.isPlaying) {
                       player.pause();
                     } else {
-                      final current = playlist.current;
-                      if (current != null && player.duration == Duration.zero) {
-                        await player.playTrack(current);
+                      // 安全检查后再播放
+                      if (hasValidIndex && player.duration == Duration.zero) {
+                        await player.playTrack(playlist.current!);
                       } else {
                         player.play();
                       }
@@ -474,7 +485,8 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                 color: Colors.white,
                 onPressed: () async {
                   playlist.next();
-                  if (playlist.current != null) {
+                  // 安全检查后再播放
+                  if (hasValidIndex) {
                     await player.playTrack(playlist.current!);
                   }
                 },

@@ -23,7 +23,14 @@ class Controls extends StatelessWidget {
     final dur = max(1, playerProvider.duration.inMilliseconds);
     final progress = (pos / dur).clamp(0.0, 1.0);
 
-    final currentTitle = playlistProvider.current?.title ?? '未选择歌曲';
+    // 安全获取当前曲目，防止索引越界
+    final hasValidIndex =
+        playlistProvider.currentIndex >= 0 &&
+        playlistProvider.currentIndex < playlistProvider.tracks.length;
+    final currentTitle = hasValidIndex
+        ? playlistProvider.current?.title ?? '未选择歌曲'
+        : '未选择歌曲';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -48,7 +55,10 @@ class Controls extends StatelessWidget {
             ),
             SizedBox(
               width: 52,
-              child: Text(_fmt(playerProvider.duration), textAlign: TextAlign.end),
+              child: Text(
+                _fmt(playerProvider.duration),
+                textAlign: TextAlign.end,
+              ),
             ),
           ],
         ),
@@ -59,7 +69,9 @@ class Controls extends StatelessWidget {
               tooltip: '上一首',
               onPressed: () async {
                 playlistProvider.previous();
-                if (playlistProvider.current != null) {
+                if (playlistProvider.currentIndex >= 0 &&
+                    playlistProvider.currentIndex <
+                        playlistProvider.tracks.length) {
                   await playerProvider.playTrack(playlistProvider.current!);
                 }
               },
@@ -67,14 +79,20 @@ class Controls extends StatelessWidget {
             ),
             IconButton(
               tooltip: playerProvider.isPlaying ? '暂停' : '播放',
-              onPressed: playerProvider.isPlaying ? playerProvider.pause : playerProvider.play,
-              icon: Icon(playerProvider.isPlaying ? Icons.pause : Icons.play_arrow),
+              onPressed: playerProvider.isPlaying
+                  ? playerProvider.pause
+                  : playerProvider.play,
+              icon: Icon(
+                playerProvider.isPlaying ? Icons.pause : Icons.play_arrow,
+              ),
             ),
             IconButton(
               tooltip: '下一首',
               onPressed: () async {
                 playlistProvider.next();
-                if (playlistProvider.current != null) {
+                if (playlistProvider.currentIndex >= 0 &&
+                    playlistProvider.currentIndex <
+                        playlistProvider.tracks.length) {
                   await playerProvider.playTrack(playlistProvider.current!);
                 }
               },
@@ -84,7 +102,10 @@ class Controls extends StatelessWidget {
             const Icon(Icons.volume_up),
             SizedBox(
               width: 160,
-              child: Slider(value: playerProvider.volume, onChanged: (v) => playerProvider.setVolume(v)),
+              child: Slider(
+                value: playerProvider.volume,
+                onChanged: (v) => playerProvider.setVolume(v),
+              ),
             ),
           ],
         ),

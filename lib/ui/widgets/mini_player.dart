@@ -100,7 +100,14 @@ class _MiniPlayerState extends State<MiniPlayer>
     final playerProvider = context.watch<PlayerProvider>();
     final playlistProvider = context.watch<PlaylistProvider>();
     final scheme = Theme.of(context).colorScheme;
-    final track = playlistProvider.current;
+
+    // 安全获取当前曲目，防止索引越界
+    final track =
+        playlistProvider.currentIndex >= 0 &&
+            playlistProvider.currentIndex < playlistProvider.tracks.length
+        ? playlistProvider.current
+        : null;
+
     final pos = playerProvider.position.inMilliseconds;
     final dur = max(1, playerProvider.duration.inMilliseconds);
     final progress = (pos / dur).clamp(0.0, 1.0);

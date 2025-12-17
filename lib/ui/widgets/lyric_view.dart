@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -20,8 +21,12 @@ class _LyricViewState extends State<LyricView> {
   PlaylistProvider? _playlist;
   String? _lastTrackId;
   int? _lastLyricRevision;
-  final List<GlobalKey> _lineKeys = [];
+
+  // 用于自动滚动的控制器
+  final ScrollController _scrollController = ScrollController();
   int _lastHighlighted = -1;
+  bool _userInteracting = false;
+  Timer? _scrollResetTimer;
 
   // 歌词加载状态
   bool _isLoadingLyric = false;
@@ -30,6 +35,9 @@ class _LyricViewState extends State<LyricView> {
 
   // 自定义搜索控制器
   final TextEditingController _searchController = TextEditingController();
+
+  // GlobalKeys 用于获取实际渲染尺寸
+  final Map<int, GlobalKey> _lineKeys = {};
 
   @override
   void didChangeDependencies() {
@@ -48,7 +56,43 @@ class _LyricViewState extends State<LyricView> {
   }
 
   @override
+  void initState() {
+    super.initState();
+
+    // 监听用户的手动滚动 - 更快速响应
+    _scrollController.addListener(() {
+      if (!_userInteracting) {
+        _userInteracting = true;
+
+        // 取消之前的定时器
+        _scrollResetTimer?.cancel();
+
+        // 1秒后恢复自动滚动（更短延迟）
+        _scrollResetTimer = Timer(const Duration(seconds: 1), () {
+          if (mounted && _userInteracting) {
+            setState(() {
+              _userInteracting = false;
+            });
+          }
+        });
+      } else {
+        // 用户还在滚动，重置定时器
+        _scrollResetTimer?.cancel();
+        _scrollResetTimer = Timer(const Duration(seconds: 1), () {
+          if (mounted && _userInteracting) {
+            setState(() {
+              _userInteracting = false;
+            });
+          }
+        });
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _scrollController.dispose();
+    _scrollResetTimer?.cancel();
     _player?.removeListener(_onPlayerChanged);
     _playlist?.removeListener(_onPlaylistChanged);
     _searchController.dispose();
@@ -58,8 +102,10 @@ class _LyricViewState extends State<LyricView> {
   @override
   Widget build(BuildContext context) {
     final p = context.watch<PlayerProvider>();
+
     // 也监听 PlaylistProvider 以便在曲目变化时重建
     context.watch<PlaylistProvider>();
+
     final pos = p.position;
     final idx = _currentIndex(pos);
     final scheme = Theme.of(context).colorScheme;
@@ -94,26 +140,22 @@ class _LyricViewState extends State<LyricView> {
 
     // 无歌词状态
     if (lines.isEmpty) {
-      final current = _playlist?.current;
+      final current =
+          _playlist?.currentIndex != null &&
+              _playlist!.currentIndex >= 0 &&
+              _playlist!.currentIndex < _playlist!.tracks.length
+          ? _playlist?.current
+          : null;
       final isLocal = current != null && !current.isRemote;
       return _buildNoLyricView(context, scheme, current, isLocal);
     }
 
-    // 当高亮行发生变化时，延迟一次滚动以保证 item 已渲染
-    if (idx != -1 && idx != _lastHighlighted) {
-      _lastHighlighted = idx;
+    // 关键：在 build 的最后调用滚动逻辑，使用 addPostFrameCallback
+    // 这确保滚动在真实渲染尺寸确定后执行
+    if (!_userInteracting) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (idx >= 0 && idx < _lineKeys.length) {
-          final ctx = _lineKeys[idx].currentContext;
-          if (ctx != null) {
-            Scrollable.ensureVisible(
-              ctx,
-              duration: const Duration(milliseconds: 300),
-              alignment: 0.5,
-              curve: Curves.easeInOut,
-            );
-          }
+        if (mounted) {
+          _performAutoScroll(idx);
         }
       });
     }
@@ -121,35 +163,153 @@ class _LyricViewState extends State<LyricView> {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: ListView.builder(
+        controller: _scrollController,
         itemCount: lines.length,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 16 + 40), // 顶部底部额外空间
         itemBuilder: (context, i) {
           final isActive = i == idx;
-          // 确保有对应的 GlobalKey
+
+          // 为每行创建 GlobalKey
           if (i >= _lineKeys.length) {
-            _lineKeys.addAll(
-              List.generate(i - _lineKeys.length + 1, (_) => GlobalKey()),
-            );
+            _lineKeys[i] = GlobalKey();
           }
+
           return Container(
             key: _lineKeys[i],
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 24),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
             child: AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
               style: TextStyle(
-                fontSize: isActive ? 20 : 16,
+                fontSize: isActive ? 24 : 16,
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 color: isActive
                     ? scheme.primary
                     : scheme.onSurfaceVariant.withValues(alpha: 0.6),
                 height: 1.5,
+                shadows: isActive
+                    ? [
+                        Shadow(
+                          color: scheme.primary.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                        ),
+                      ]
+                    : [],
               ),
-              child: Text(lines[i].text, textAlign: TextAlign.center),
+              child: Text(
+                lines[i].text,
+                textAlign: TextAlign.center,
+                softWrap: true,
+              ),
             ),
           );
         },
       ),
     );
+  }
+
+  void _performAutoScroll(int idx) {
+    if (idx == -1 || idx >= lines.length || _userInteracting) return;
+
+    // 如果是新行，总是滚动
+    final isNewLine = idx != _lastHighlighted;
+
+    if (isNewLine) {
+      _scrollToLine(idx);
+      _lastHighlighted = idx;
+    } else {
+      // 检查当前行是否在可视范围内
+      _checkVisibilityAndScroll(idx);
+    }
+  }
+
+  void _scrollToLine(int idx) {
+    if (!_scrollController.hasClients) return;
+
+    final key = idx < _lineKeys.length ? _lineKeys[idx] : null;
+    if (key == null || key.currentContext == null) return;
+
+    // 使用 EnsureVisible 来精确滚动到当前行
+    Scrollable.ensureVisible(
+      key.currentContext!,
+      duration: const Duration(milliseconds: 350),
+      alignment: 0.5, // 让当前行位于视口中央
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  void _checkVisibilityAndScroll(int idx) {
+    if (!_scrollController.hasClients) return;
+
+    final key = idx < _lineKeys.length ? _lineKeys[idx] : null;
+    if (key == null || key.currentContext == null) return;
+
+    // 获取当前行的位置信息
+    final renderBox = key.currentContext!.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final viewportBox =
+        _scrollController.position.context.notificationContext
+                ?.findRenderObject()
+            as RenderBox?;
+    if (viewportBox == null) return;
+
+    // 获取相对位置
+    final offset = renderBox.localToGlobal(Offset.zero, ancestor: viewportBox);
+    final viewportHeight = viewportBox.size.height;
+    final itemHeight = renderBox.size.height;
+
+    // 定义舒适可视区域（视口的 25%-75%）
+    final comfortableTop = viewportHeight * 0.25;
+    final comfortableBottom = viewportHeight * 0.75;
+
+    // 检查是否在舒适区域内
+    final itemTop = offset.dy;
+    final itemBottom = offset.dy + itemHeight;
+
+    if (itemTop < comfortableTop || itemBottom > comfortableBottom) {
+      _scrollToLine(idx);
+    }
+  }
+
+  Stream<String?> _findExistingLyricPath(Track track) async* {
+    // 检查缓存路径
+    final cached = _player?.localLyricPaths[track.id];
+    if (cached != null && await File(cached).exists()) {
+      yield cached;
+      return;
+    }
+
+    // 检查远程歌曲的歌词
+    if (track.isRemote && track.lyricKey != null) {
+      final dir = await getApplicationSupportDirectory();
+      final remotePath = '${dir.path}/${track.lyricKey}.lrc';
+      if (await File(remotePath).exists()) {
+        yield remotePath;
+        return;
+      }
+    }
+
+    // 检查同目录下的lrc文件
+    if (!track.isRemote && track.path.isNotEmpty) {
+      final audioPath = track.path;
+      final name = audioPath.replaceAll(RegExp(r"\.[^/.]+$"), '');
+      final lrcLocal = '$name.lrc';
+      if (await File(lrcLocal).exists()) {
+        yield lrcLocal;
+        return;
+      }
+    }
+
+    // 检查应用支持目录
+    final dir = await getApplicationSupportDirectory();
+    final cachedPath = '${dir.path}/local_${track.id}.lrc';
+    if (await File(cachedPath).exists()) {
+      yield cachedPath;
+      return;
+    }
+
+    yield null;
   }
 
   Widget _buildNoLyricView(
@@ -159,75 +319,69 @@ class _LyricViewState extends State<LyricView> {
     bool isLocal,
   ) {
     return Center(
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.lyrics_outlined,
-                size: 48,
-                color: scheme.outline.withValues(alpha: 0.5),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lyrics_outlined,
+              size: 48,
+              color: scheme.outline.withValues(alpha: 0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _lyricError ?? '暂无歌词',
+              style: TextStyle(color: scheme.outline, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+
+            // 本地歌曲显示搜索选项
+            if (isLocal && current != null) ...[
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '自动搜索歌词',
+                    style: TextStyle(color: scheme.outline, fontSize: 14),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: _player?.autoFetchLyricForLocal ?? true,
+                    onChanged: (value) {
+                      setState(() {
+                        _player?.autoFetchLyricForLocal = value;
+                      });
+                    },
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
-              Text(
-                _lyricError ?? '暂无歌词',
-                style: TextStyle(color: scheme.outline, fontSize: 16),
-                textAlign: TextAlign.center,
+
+              FilledButton.icon(
+                icon: const Icon(Icons.search),
+                label: const Text('搜索在线歌词'),
+                onPressed: () => _searchOnlineLyric(current),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
 
-              // 本地歌曲显示搜索选项
-              if (isLocal && current != null) ...[
-                // 自动搜索开关
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '自动搜索歌词',
-                      style: TextStyle(color: scheme.outline, fontSize: 14),
-                    ),
-                    const SizedBox(width: 8),
-                    Switch(
-                      value: _player?.autoFetchLyricForLocal ?? true,
-                      onChanged: (value) {
-                        setState(() {
-                          _player?.autoFetchLyricForLocal = value;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // 搜索按钮
-                FilledButton.icon(
-                  icon: const Icon(Icons.search),
-                  label: const Text('搜索在线歌词'),
-                  onPressed: () => _searchOnlineLyric(current),
-                ),
-                const SizedBox(height: 12),
-
-                // 自定义搜索
-                TextButton.icon(
-                  icon: const Icon(Icons.edit, size: 18),
-                  label: const Text('自定义关键词搜索'),
-                  onPressed: () => _showCustomSearchDialog(context, current),
-                ),
-              ],
-
-              // 在线歌曲显示重新获取按钮
-              if (current != null && current.isRemote) ...[
-                FilledButton.icon(
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('重新获取歌词'),
-                  onPressed: () => _refetchRemoteLyric(current),
-                ),
-              ],
+              TextButton.icon(
+                icon: const Icon(Icons.edit, size: 18),
+                label: const Text('自定义关键词搜索'),
+                onPressed: () => _showCustomSearchDialog(context, current),
+              ),
             ],
-          ),
+
+            // 在线歌曲显示重新获取按钮
+            if (current != null && current.isRemote) ...[
+              FilledButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text('重新获取歌词'),
+                onPressed: () => _refetchRemoteLyric(current),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -306,7 +460,6 @@ class _LyricViewState extends State<LyricView> {
       if (!mounted) return;
 
       if (path != null) {
-        // 歌词获取成功，重新加载
         await _loadForCurrent();
         if (mounted) {
           ScaffoldMessenger.of(context)
@@ -421,11 +574,16 @@ class _LyricViewState extends State<LyricView> {
   }
 
   void _onPlaylistChanged() {
-    final current = _playlist?.current;
+    final hasValidIndex =
+        _playlist?.currentIndex != null &&
+        _playlist!.currentIndex >= 0 &&
+        _playlist!.currentIndex < _playlist!.tracks.length;
+
+    final current = hasValidIndex ? _playlist?.current : null;
     final trackChanged = current?.id != _lastTrackId;
+
     if (trackChanged) {
       _loadForCurrent();
-      // 如果是本地歌曲且开启了自动搜索，尝试自动搜索歌词
       if (current != null &&
           !current.isRemote &&
           (_player?.autoFetchLyricForLocal ?? false)) {
@@ -434,31 +592,35 @@ class _LyricViewState extends State<LyricView> {
     }
   }
 
-  /// 尝试自动搜索歌词（如果没有找到本地歌词）
   Future<void> _tryAutoSearchLyric(Track track) async {
-    // 延迟一点执行，等待 _loadForCurrent 完成
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
 
-    // 如果已经有歌词了，不需要搜索
     if (lines.isNotEmpty) return;
 
-    // 检查是否已有歌词文件
-    final existingPath = await _findExistingLyricPath(track);
-    if (existingPath != null) return;
+    await for (final path in _findExistingLyricPath(track)) {
+      if (path != null) return;
+    }
 
-    // 自动搜索
     await _searchOnlineLyric(track);
   }
 
   Future<void> _loadForCurrent() async {
-    final t = _playlist?.current;
+    final hasValidIndex =
+        _playlist?.currentIndex != null &&
+        _playlist!.currentIndex >= 0 &&
+        _playlist!.currentIndex < _playlist!.tracks.length;
+
+    final t = hasValidIndex ? _playlist?.current : null;
+
     if (t == null) {
       if (mounted) {
         setState(() {
           lines = [];
           _isLoadingLyric = false;
           _lyricError = null;
+          _lastHighlighted = -1;
+          _lineKeys.clear();
         });
       }
       return;
@@ -466,94 +628,51 @@ class _LyricViewState extends State<LyricView> {
 
     _lastTrackId = t.id;
 
-    // 不显示加载状态，直接快速检查文件
-    // 避免频繁切换时闪烁
-
     try {
-      // 先检查是否有可用的歌词文件
-      String? existingPath = await _findExistingLyricPath(t);
+      // 使用流式检查
+      await for (final existingPath in _findExistingLyricPath(t)) {
+        if (existingPath != null) {
+          final file = File(existingPath);
+          final content = await file.readAsString();
+          final parsed = LrcParser.parse(content);
 
-      if (existingPath != null) {
-        final file = File(existingPath);
-        final content = await file.readAsString();
-        final parsed = LrcParser.parse(content);
-
-        // 重建 keys
-        _lineKeys.clear();
-        _lineKeys.addAll(List.generate(parsed.length, (_) => GlobalKey()));
-
-        if (mounted) {
-          setState(() {
-            lines = parsed;
-            _isLoadingLyric = false;
-            _lyricError = null;
-          });
-
-          // 首次加载后滚动到当前播放位置
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            final p = _player;
-            if (p == null) return;
-            final idx = _currentIndex(p.position);
-            if (idx >= 0 && idx < _lineKeys.length) {
-              final ctx = _lineKeys[idx].currentContext;
-              if (ctx != null) {
-                Scrollable.ensureVisible(
-                  ctx,
-                  duration: const Duration(milliseconds: 300),
-                  alignment: 0.5,
-                );
+          if (mounted) {
+            setState(() {
+              lines = parsed;
+              _isLoadingLyric = false;
+              _lyricError = null;
+              _lastHighlighted = -1;
+              _lineKeys.clear();
+              // 重建 keys
+              for (int i = 0; i < parsed.length; i++) {
+                _lineKeys[i] = GlobalKey();
               }
-            }
-          });
+            });
+          }
+          return;
         }
-      } else {
-        // 没有找到歌词文件
-        if (mounted) {
-          setState(() {
-            lines = [];
-            _isLoadingLyric = false;
-            _lyricError = null;
-          });
-        }
+      }
+
+      // 没找到歌词
+      if (mounted) {
+        setState(() {
+          lines = [];
+          _isLoadingLyric = false;
+          _lyricError = null;
+          _lastHighlighted = -1;
+          _lineKeys.clear();
+        });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           lines = [];
           _isLoadingLyric = false;
-          _lyricError = null; // 不显示错误，只是没有歌词
+          _lyricError = null;
+          _lastHighlighted = -1;
+          _lineKeys.clear();
         });
       }
     }
-  }
-
-  /// 查找已存在的歌词文件路径
-  Future<String?> _findExistingLyricPath(Track track) async {
-    // 1. 检查 provider 中已缓存的本地歌词路径
-    final cached = _player?.localLyricPaths[track.id];
-    if (cached != null && await File(cached).exists()) return cached;
-
-    // 2. 如果是远程曲目，检查 lyricKey 对应的缓存文件
-    if (track.isRemote && track.lyricKey != null) {
-      final dir = await getApplicationSupportDirectory();
-      final remotePath = '${dir.path}/${track.lyricKey}.lrc';
-      if (await File(remotePath).exists()) return remotePath;
-    }
-
-    // 3. 如果是本地曲目，检查同目录下的 .lrc 文件
-    if (!track.isRemote && track.path.isNotEmpty) {
-      final audioPath = track.path;
-      final name = audioPath.replaceAll(RegExp(r"\.[^/.]+$"), '');
-      final lrcLocal = '$name.lrc';
-      if (await File(lrcLocal).exists()) return lrcLocal;
-    }
-
-    // 4. 检查应用缓存目录中的本地歌曲歌词
-    final dir = await getApplicationSupportDirectory();
-    final cachedPath = '${dir.path}/local_${track.id}.lrc';
-    if (await File(cachedPath).exists()) return cachedPath;
-
-    return null;
   }
 }
