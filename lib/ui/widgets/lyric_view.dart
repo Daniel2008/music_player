@@ -26,6 +26,7 @@ class _LyricViewState extends State<LyricView> {
   final ScrollController _scrollController = ScrollController();
   int _lastHighlighted = -1;
   bool _userInteracting = false;
+  bool _scrollPending = false; // 防止 PostFrameCallback 堆积
   Timer? _scrollResetTimer;
 
   // 歌词加载状态
@@ -58,17 +59,8 @@ class _LyricViewState extends State<LyricView> {
   @override
   void initState() {
     super.initState();
-
-    // 监听用户的手动滚动 — 合并冗余逻辑
-    _scrollController.addListener(() {
-      _userInteracting = true;
-      _scrollResetTimer?.cancel();
-      _scrollResetTimer = Timer(const Duration(seconds: 1), () {
-        if (mounted) {
-          setState(() => _userInteracting = false);
-        }
-      });
-    });
+    // 注意：用户滚动检测改用 NotificationListener 在 build 中实现
+    // 不再使用 _scrollController.addListener，因为它无法区分程序化和手动滚动
   }
 
   @override
@@ -132,11 +124,12 @@ class _LyricViewState extends State<LyricView> {
       return _buildNoLyricView(context, scheme, current, isLocal);
     }
 
-    // 关键：在 build 的最后调用滚动逻辑，使用 addPostFrameCallback
-    // 这确保滚动在真实渲染尺寸确定后执行
-    if (!_userInteracting) {
+    // 自动滚动：仅在非用户交互且无待处理回调时触发
+    if (!_userInteracting && !_scrollPending) {
+      _scrollPending = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        _scrollPending = false;
+        if (mounted && !_userInteracting) {
           _performAutoScroll(idx);
         }
       });
@@ -148,57 +141,163 @@ class _LyricViewState extends State<LyricView> {
       _lineKeys = List.generate(lines.length, (_) => GlobalKey());
     }
 
-    return ScrollConfiguration(
-      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-      child: ListView.builder(
-        controller: _scrollController,
-        itemCount: lines.length,
-        padding: const EdgeInsets.symmetric(vertical: 16 + 40), // 顶部底部额外空间
-        itemBuilder: (context, i) {
-          final isActive = i == idx;
+    return Stack(
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            // 仅检测用户发起的滚动（拖拽）
+            if (notification is ScrollStartNotification &&
+                notification.dragDetails != null) {
+              // 用户手指/鼠标开始拖拽
+              _userInteracting = true;
+              _scrollResetTimer?.cancel();
+              _scrollResetTimer = Timer(const Duration(seconds: 4), () {
+                if (mounted) {
+                  setState(() => _userInteracting = false);
+                }
+              });
+            }
+            return false; // 不消费事件
+          },
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: ListView.builder(
+              controller: _scrollController,
+            itemCount: lines.length,
+            padding: const EdgeInsets.symmetric(vertical: 16 + 40), // 顶部底部额外空间
+            itemBuilder: (context, i) {
+              final isActive = i == idx;
 
-          // 距离高亮行的距离 → 渐变透明度
-          final distance = idx >= 0 ? (i - idx).abs() : 0;
-          final distanceAlpha = distance <= 1
-              ? 0.8
-              : (0.65 - (distance * 0.08)).clamp(0.2, 0.65);
+              // 距离高亮行的距离 → 渐变透明度
+              final distance = idx >= 0 ? (i - idx).abs() : 0;
+              final distanceAlpha = distance <= 1
+                  ? 0.8
+                  : (0.65 - (distance * 0.08)).clamp(0.2, 0.65);
 
-          return Container(
-            key: i < _lineKeys.length ? _lineKeys[i] : null,
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-              style: TextStyle(
-                fontSize: isActive ? 22 : 15,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
-                color: isActive
-                    ? scheme.primary
-                    : scheme.onSurfaceVariant.withValues(alpha: distanceAlpha),
-                height: 1.6,
-                letterSpacing: isActive ? 0.3 : 0,
-                shadows: isActive
-                    ? [
-                        Shadow(
-                          color: scheme.primary.withValues(alpha: 0.4),
-                          blurRadius: 16,
+              return GestureDetector(
+                onTap: () {
+                  // 点击歌词行跳转到对应时间点
+                  final p = context.read<PlayerProvider>();
+                  p.seek(lines[i].time);
+                },
+                child: Container(
+                  key: i < _lineKeys.length ? _lineKeys[i] : null,
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
+                  child: Row(
+                    children: [
+                      // 左侧进度指示条
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        width: 3,
+                        height: isActive ? 28 : 0,
+                        margin: const EdgeInsets.only(right: 12),
+                        decoration: BoxDecoration(
+                          color: isActive ? scheme.primary : Colors.transparent,
+                          borderRadius: BorderRadius.circular(2),
+                          boxShadow: isActive
+                              ? [
+                                  BoxShadow(
+                                    color: scheme.primary.withValues(alpha: 0.4),
+                                    blurRadius: 6,
+                                  ),
+                                ]
+                              : [],
                         ),
-                        Shadow(
-                          color: scheme.primary.withValues(alpha: 0.15),
-                          blurRadius: 32,
+                      ),
+                      // 歌词文本
+                      Expanded(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                          style: TextStyle(
+                            fontSize: isActive ? 22 : 15,
+                            fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
+                            color: isActive
+                                ? scheme.primary
+                                : scheme.onSurfaceVariant.withValues(alpha: distanceAlpha),
+                            height: 1.6,
+                            letterSpacing: isActive ? 0.3 : 0,
+                            shadows: isActive
+                                ? [
+                                    Shadow(
+                                      color: scheme.primary.withValues(alpha: 0.4),
+                                      blurRadius: 16,
+                                    ),
+                                    Shadow(
+                                      color: scheme.primary.withValues(alpha: 0.15),
+                                      blurRadius: 32,
+                                    ),
+                                  ]
+                                : [],
+                          ),
+                          child: Text(
+                            lines[i].text,
+                            textAlign: TextAlign.center,
+                            softWrap: true,
+                          ),
                         ),
-                      ]
-                    : [],
-              ),
-              child: Text(
-                lines[i].text,
-                textAlign: TextAlign.center,
-                softWrap: true,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        // “回到当前”悬浮按钮 — 用户手动滚动后显示
+        ),
+        if (_userInteracting && idx >= 0)
+          Positioned(
+            bottom: 12,
+            right: 12,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  setState(() => _userInteracting = false);
+                  _scrollToLine(idx);
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.shadow.withValues(alpha: 0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.keyboard_double_arrow_down_rounded,
+                        size: 16,
+                        color: scheme.onPrimaryContainer,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '回到当前',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          );
-        },
-      ),
+          ),
+      ],
     );
   }
 
@@ -224,11 +323,10 @@ class _LyricViewState extends State<LyricView> {
     final key = _lineKeys[idx];
     if (key.currentContext == null) return;
 
-    // 使用 EnsureVisible 来精确滚动到当前行
     Scrollable.ensureVisible(
       key.currentContext!,
       duration: const Duration(milliseconds: 350),
-      alignment: 0.5, // 让当前行位于视口中央
+      alignment: 0.5,
       curve: Curves.easeInOutCubic,
     );
   }

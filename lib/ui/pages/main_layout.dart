@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -21,7 +20,6 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
-  late final PageController _pageController;
   late final AnimationController _navAnimationController;
 
   static const _pages = [
@@ -57,7 +55,6 @@ class _MainLayoutState extends State<MainLayout>
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: _selectedIndex);
     _navAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -66,7 +63,6 @@ class _MainLayoutState extends State<MainLayout>
 
   @override
   void dispose() {
-    _pageController.dispose();
     _navAnimationController.dispose();
     super.dispose();
   }
@@ -74,11 +70,6 @@ class _MainLayoutState extends State<MainLayout>
   void _onDestinationSelected(int index) {
     if (_selectedIndex == index) return;
     setState(() => _selectedIndex = index);
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-    );
   }
 
   @override
@@ -109,10 +100,17 @@ class _MainLayoutState extends State<MainLayout>
                       child: Column(
                         children: [
                           Expanded(
-                            child: PageView(
-                              controller: _pageController,
-                              physics: const NeverScrollableScrollPhysics(),
-                              children: _pages,
+                            child: Stack(
+                              children: [
+                                for (int i = 0; i < _pages.length; i++)
+                                  TickerMode(
+                                    enabled: i == _selectedIndex,
+                                    child: Offstage(
+                                      offstage: i != _selectedIndex,
+                                      child: _pages[i],
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                           const MiniPlayer(),
@@ -139,94 +137,82 @@ class _MainLayoutState extends State<MainLayout>
           windowManager.maximize();
         }
       },
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-          child: Container(
-            height: 40,
-            decoration: BoxDecoration(
+      child: Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: isDark
+              ? scheme.surface.withValues(alpha: 0.92)
+              : scheme.surface.withValues(alpha: 0.95),
+          border: Border(
+            bottom: BorderSide(
               color: isDark
-                  ? scheme.surface.withValues(alpha: 0.75)
-                  : scheme.surface.withValues(alpha: 0.85),
-              border: Border(
-                bottom: BorderSide(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
-                      : Colors.black.withValues(alpha: 0.08),
-                  width: 1,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                const SizedBox(width: 14),
-                // 应用图标
-                Container(
-                  width: 26,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        scheme.primary,
-                        scheme.tertiary,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(7),
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.primary.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.music_note_rounded,
-                    size: 15,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                // 应用标题
-                Text(
-                  'Music Player',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface.withValues(alpha: 0.85),
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                // 拖拽区域
-                const Expanded(child: SizedBox()),
-                // 窗口控制按钮
-                _buildWindowButton(
-                  icon: Icons.remove_rounded,
-                  onPressed: () => windowManager.minimize(),
-                  scheme: scheme,
-                ),
-                _buildWindowButton(
-                  icon: Icons.crop_square_rounded,
-                  onPressed: () async {
-                    if (await windowManager.isMaximized()) {
-                      windowManager.unmaximize();
-                    } else {
-                      windowManager.maximize();
-                    }
-                  },
-                  scheme: scheme,
-                ),
-                _buildWindowButton(
-                  icon: Icons.close_rounded,
-                  onPressed: () => windowManager.close(),
-                  scheme: scheme,
-                  isClose: true,
-                ),
-              ],
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.black.withValues(alpha: 0.08),
+              width: 1,
             ),
           ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 14),
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [scheme.primary, scheme.tertiary],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(7),
+                boxShadow: [
+                  BoxShadow(
+                    color: scheme.primary.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.music_note_rounded,
+                size: 15,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Music Player',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: scheme.onSurface.withValues(alpha: 0.85),
+                letterSpacing: 0.3,
+              ),
+            ),
+            const Expanded(child: SizedBox()),
+            _buildWindowButton(
+              icon: Icons.remove_rounded,
+              onPressed: () => windowManager.minimize(),
+              scheme: scheme,
+            ),
+            _buildWindowButton(
+              icon: Icons.crop_square_rounded,
+              onPressed: () async {
+                if (await windowManager.isMaximized()) {
+                  windowManager.unmaximize();
+                } else {
+                  windowManager.maximize();
+                }
+              },
+              scheme: scheme,
+            ),
+            _buildWindowButton(
+              icon: Icons.close_rounded,
+              onPressed: () => windowManager.close(),
+              scheme: scheme,
+              isClose: true,
+            ),
+          ],
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
@@ -39,6 +40,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     _fadeController.value = 1.0;
 
     _startHideTimer();
+
+    // 进入真正全屏
+    windowManager.setFullScreen(true);
   }
 
   void _startHideTimer() {
@@ -59,10 +63,15 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     _startHideTimer();
   }
 
+  void _exitFullscreen() {
+    windowManager.setFullScreen(false);
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
     _fadeController.dispose();
+    _exitFullscreen();
     super.dispose();
   }
 
@@ -75,7 +84,6 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final player = context.watch<PlayerProvider>();
     final playlist = context.watch<PlaylistProvider>();
 
     // 安全获取当前曲目，防止索引越界
@@ -90,10 +98,10 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
           Navigator.of(context).maybePop();
         },
         const SingleActivator(LogicalKeyboardKey.space): () async {
+          final player = context.read<PlayerProvider>();
           if (player.isPlaying) {
             player.pause();
           } else {
-            // 安全检查后再播放
             if (hasValidIndex && player.duration == Duration.zero) {
               await player.playTrack(playlist.current!);
             } else {
@@ -102,10 +110,12 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
           }
         },
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
+          final player = context.read<PlayerProvider>();
           final newPos = player.position - const Duration(seconds: 5);
           player.seek(newPos < Duration.zero ? Duration.zero : newPos);
         },
         const SingleActivator(LogicalKeyboardKey.arrowRight): () {
+          final player = context.read<PlayerProvider>();
           player.seek(player.position + const Duration(seconds: 5));
         },
         const SingleActivator(LogicalKeyboardKey.keyL): () {
@@ -206,11 +216,15 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                     right: 0,
                     child: FadeTransition(
                       opacity: _fadeAnimation,
-                      child: _buildBottomControls(
-                        context,
-                        scheme,
-                        player,
-                        playlist,
+                      child: Consumer<PlayerProvider>(
+                        builder: (context, player, _) {
+                          return _buildBottomControls(
+                            context,
+                            scheme,
+                            player,
+                            playlist,
+                          );
+                        },
                       ),
                     ),
                   ),

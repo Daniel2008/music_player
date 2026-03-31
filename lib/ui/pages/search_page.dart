@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/search_provider.dart';
@@ -396,7 +397,7 @@ class _SearchResultList extends StatelessWidget {
         Expanded(
           child: ListView.builder(
             itemCount: items.length,
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 16, left: 12, right: 12),
             itemBuilder: (context, index) {
               final t = items[index];
               return _SearchResultItem(
@@ -412,7 +413,7 @@ class _SearchResultList extends StatelessWidget {
   }
 }
 
-class _SearchResultItem extends StatelessWidget {
+class _SearchResultItem extends StatefulWidget {
   final GdSearchTrack track;
   final int index;
   final String quality;
@@ -424,132 +425,301 @@ class _SearchResultItem extends StatelessWidget {
   });
 
   @override
+  State<_SearchResultItem> createState() => _SearchResultItemState();
+}
+
+class _SearchResultItemState extends State<_SearchResultItem>
+    with SingleTickerProviderStateMixin {
+  bool _isHovered = false;
+  late final AnimationController _entranceController;
+  late final Animation<double> _entranceAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _entranceAnimation = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOutCubic,
+    );
+    // 交错入场动画
+    Future.delayed(Duration(milliseconds: 30 * widget.index.clamp(0, 15)), () {
+      if (mounted) _entranceController.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _entranceController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final playerProvider = context.watch<PlayerProvider>();
-    final playlistProvider = context.watch<PlaylistProvider>();
+    // 性能优化：只 watch 跟此组件渲染直接相关的 Provider
+    // PlayerProvider 不需要 watch — 不需要响应播放进度变化
     final favoritesProvider = context.watch<FavoritesProvider>();
     final downloadProvider = context.watch<DownloadProvider>();
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final isDownloading = downloadProvider.isDownloading(
-      track.source,
-      track.id,
+      widget.track.source,
+      widget.track.id,
     );
     final downloadProgress = downloadProvider.getDownloadProgress(
-      track.source,
-      track.id,
+      widget.track.source,
+      widget.track.id,
     );
-    final isFavorite = favoritesProvider.isFavorite(track);
+    final isFavorite = favoritesProvider.isFavorite(widget.track);
 
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: scheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Center(
-          child: Text(
-            '${index + 1}',
-            style: TextStyle(
-              color: scheme.onPrimaryContainer,
-              fontWeight: FontWeight.bold,
+    // 构建封面 URL
+    final gdApi = context.read<GdMusicApiClient>();
+    final coverUrl = gdApi.buildCoverUrl(widget.track.picId, widget.track.source);
+
+    return FadeTransition(
+      opacity: _entranceAnimation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.08),
+          end: Offset.zero,
+        ).animate(_entranceAnimation),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: _isHovered
+                  ? (isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : scheme.primaryContainer.withValues(alpha: 0.15))
+                  : Colors.transparent,
+              border: _isHovered
+                  ? Border.all(
+                      color: scheme.primary.withValues(alpha: 0.12),
+                      width: 1,
+                    )
+                  : Border.all(color: Colors.transparent, width: 1),
             ),
-          ),
-        ),
-      ),
-      title: Text(
-        track.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w500),
-      ),
-      subtitle: Text(
-        [
-          track.artistText,
-          track.album,
-          track.source,
-        ].where((s) => s.isNotEmpty).join(' · '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, color: scheme.outline),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 收藏按钮
-          IconButton(
-            icon: Icon(
-              isFavorite ? Icons.favorite : Icons.favorite_border,
-              color: isFavorite ? Colors.red : scheme.outline,
-              size: 20,
-            ),
-            tooltip: isFavorite ? '取消收藏' : '收藏',
-            visualDensity: VisualDensity.compact,
-            onPressed: () async {
-              await favoritesProvider.toggleFavorite(track);
-            },
-          ),
-          // 下载按钮
-          if (isDownloading)
-            SizedBox(
-              width: 36,
-              height: 36,
-              child: Stack(
-                alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
                 children: [
-                  CircularProgressIndicator(
-                    value: downloadProgress,
-                    strokeWidth: 2.5,
-                    backgroundColor: scheme.surfaceContainerHighest,
-                  ),
-                  Text(
-                    '${(downloadProgress * 100).toInt()}',
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      color: scheme.primary,
+                  // 封面图
+                  _buildCoverArt(coverUrl, scheme),
+                  const SizedBox(width: 14),
+                  // 歌曲信息
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.track.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          [
+                            widget.track.artistText,
+                            widget.track.album,
+                            widget.track.source,
+                          ].where((s) => s.isNotEmpty).join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.outline,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  // 操作按钮
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 收藏按钮
+                      _buildActionButton(
+                        icon: isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: isFavorite ? Colors.red : scheme.outline,
+                        tooltip: isFavorite ? '取消收藏' : '收藏',
+                        onPressed: () => favoritesProvider.toggleFavorite(widget.track),
+                      ),
+                      // 下载按钮
+                      if (isDownloading)
+                        SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                value: downloadProgress,
+                                strokeWidth: 2.5,
+                                backgroundColor: scheme.surfaceContainerHighest,
+                              ),
+                              Text(
+                                '${(downloadProgress * 100).toInt()}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: scheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        _buildActionButton(
+                          icon: Icons.download_outlined,
+                          color: scheme.outline,
+                          tooltip: '下载',
+                          onPressed: () => _downloadTrack(context, downloadProvider, widget.track),
+                        ),
+                      // 播放按钮
+                      const SizedBox(width: 2),
+                      _buildPlayButton(context, scheme),
+                    ],
                   ),
                 ],
               ),
-            )
-          else
-            IconButton(
-              icon: Icon(
-                Icons.download_outlined,
-                size: 20,
-                color: scheme.outline,
-              ),
-              tooltip: '下载',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => _downloadTrack(context, downloadProvider, track),
             ),
-          // 播放按钮
-          IconButton(
-            icon: Icon(Icons.play_circle_filled, color: scheme.primary),
-            tooltip: '立即播放',
-            onPressed: () =>
-                _playTrack(context, playerProvider, playlistProvider, track),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Future<void> _playTrack(
-    BuildContext context,
-    PlayerProvider playerProvider,
-    PlaylistProvider playlistProvider,
-    GdSearchTrack item,
-  ) async {
-    final track = Track.fromGdSearchTrack(item);
+  Widget _buildCoverArt(String? coverUrl, ColorScheme scheme) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: scheme.primaryContainer.withValues(alpha: 0.5),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.shadow.withValues(alpha: 0.08),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: coverUrl != null
+            ? CachedNetworkImage(
+                imageUrl: coverUrl,
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+                placeholder: (ctx, url) => _buildCoverPlaceholder(scheme),
+                errorWidget: (ctx, url, err) => _buildCoverPlaceholder(scheme),
+              )
+            : _buildCoverPlaceholder(scheme),
+      ),
+    );
+  }
+
+  Widget _buildCoverPlaceholder(ColorScheme scheme) {
+    return Container(
+      color: scheme.primaryContainer.withValues(alpha: 0.5),
+      child: Center(
+        child: Icon(
+          Icons.music_note_rounded,
+          size: 20,
+          color: scheme.onPrimaryContainer.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required Color color,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(icon, size: 20, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayButton(BuildContext context, ColorScheme scheme) {
+    return Tooltip(
+      message: '立即播放',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _playTrack(context),
+          borderRadius: BorderRadius.circular(22),
+          child: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  scheme.primary,
+                  scheme.primary.withValues(alpha: 0.8),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: _isHovered
+                  ? [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: 0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Icon(
+              Icons.play_arrow_rounded,
+              size: 22,
+              color: scheme.onPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playTrack(BuildContext context) async {
+    final playerProvider = context.read<PlayerProvider>();
+    final playlistProvider = context.read<PlaylistProvider>();
+    final track = Track.fromGdSearchTrack(widget.track);
     playlistProvider.addOrSelectTrack(track);
 
     final ok = await playerProvider.resolveAndPlayTrackUrl(
-      item,
-      br: quality,
+      widget.track,
+      br: widget.quality,
       playlistProvider: playlistProvider,
     );
     if (!ok && context.mounted) {
@@ -566,7 +736,7 @@ class _SearchResultItem extends StatelessWidget {
         ..clearSnackBars()
         ..showSnackBar(
           SnackBar(
-            content: Text('正在播放: ${item.name}'),
+            content: Text('正在播放: ${widget.track.name}'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -578,7 +748,7 @@ class _SearchResultItem extends StatelessWidget {
     DownloadProvider downloadProvider,
     GdSearchTrack t,
   ) async {
-    final result = await downloadProvider.downloadTrack(t, br: quality);
+    final result = await downloadProvider.downloadTrack(t, br: widget.quality);
     if (!context.mounted) return;
 
     if (result != null) {
@@ -659,19 +829,20 @@ class _ShimmerItemState extends State<_ShimmerItem>
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           children: [
+            // 封面骨架
             Container(
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
                 color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

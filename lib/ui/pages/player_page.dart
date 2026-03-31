@@ -15,8 +15,11 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  // 当前选择的频谱样式
   VisualizerStyle _visualizerStyle = VisualizerStyle.bars;
+
+  // 折叠状态
+  bool _lyricsExpanded = true;
+  bool _playlistExpanded = true;
 
   @override
   Widget build(BuildContext context) {
@@ -44,37 +47,41 @@ class _PlayerPageState extends State<PlayerPage> {
       children: [
         // 左侧: 频谱 + 歌词
         Expanded(
-          flex: 3,
+          flex: _playlistExpanded ? 3 : 5,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 10, 20),
+            padding: EdgeInsets.fromLTRB(20, 20, _playlistExpanded ? 10 : 20, 20),
             child: Column(
               children: [
-                // 频谱卡片 — 主焦点
+                // 频谱卡片 — 歌词折叠后自动占满
                 Expanded(
-                  flex: 3,
+                  flex: _lyricsExpanded ? 3 : 1,
                   child: _buildVisualizerCard(context, scheme, isDark),
                 ),
-                const SizedBox(height: 12),
-                // 歌词卡片
-                Expanded(
-                  flex: 2,
-                  child: _buildLyricsCard(context, scheme, isDark),
-                ),
+                // 歌词卡片 — 可折叠
+                if (_lyricsExpanded) ...[
+                  const SizedBox(height: 12),
+                  Expanded(
+                    flex: 2,
+                    child: _buildLyricsCard(context, scheme, isDark),
+                  ),
+                ],
               ],
             ),
           ),
         ),
-        // 右侧: 播放列表
-        Expanded(
-          flex: 2,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 20, 20, 20),
-            child: _buildPlaylistCard(context, scheme, isDark),
+        // 右侧: 播放列表 — 可折叠
+        if (_playlistExpanded)
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 20, 20, 20),
+              child: _buildPlaylistCard(context, scheme, isDark),
+            ),
           ),
-        ),
       ],
     );
   }
+
 
   Widget _buildNarrowLayout(
     BuildContext context,
@@ -92,16 +99,66 @@ class _PlayerPageState extends State<PlayerPage> {
             child: _buildVisualizerCard(context, scheme, isDark),
           ),
           const SizedBox(height: 12),
-          // 歌词
-          SizedBox(
-            height: 220,
-            child: _buildLyricsCard(context, scheme, isDark),
+          // 歌词 — 可折叠
+          _buildCollapsibleCard(
+            title: '歌词',
+            icon: Icons.lyrics_outlined,
+            isExpanded: _lyricsExpanded,
+            onToggle: () => setState(() => _lyricsExpanded = !_lyricsExpanded),
+            scheme: scheme,
+            isDark: isDark,
+            expandedChild: SizedBox(
+              height: 220,
+              child: _buildLyricsContent(),
+            ),
           ),
           const SizedBox(height: 12),
-          // 播放列表
-          SizedBox(
-            height: 400,
-            child: _buildPlaylistCard(context, scheme, isDark),
+          // 播放列表 — 可折叠
+          _buildCollapsibleCard(
+            title: '播放列表',
+            icon: Icons.queue_music_rounded,
+            isExpanded: _playlistExpanded,
+            onToggle: () => setState(() => _playlistExpanded = !_playlistExpanded),
+            scheme: scheme,
+            isDark: isDark,
+            expandedChild: const SizedBox(
+              height: 400,
+              child: PlaylistPanel(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 窄布局用的可折叠卡片
+  Widget _buildCollapsibleCard({
+    required String title,
+    required IconData icon,
+    required bool isExpanded,
+    required VoidCallback onToggle,
+    required ColorScheme scheme,
+    required bool isDark,
+    required Widget expandedChild,
+  }) {
+    return _buildGlowCard(
+      scheme: scheme,
+      isDark: isDark,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildSectionHeader(
+            title: title,
+            icon: icon,
+            isExpanded: isExpanded,
+            onToggle: onToggle,
+            scheme: scheme,
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
+            child: isExpanded ? expandedChild : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -118,7 +175,6 @@ class _PlayerPageState extends State<PlayerPage> {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
-        // 微光边框（暗色模式下更明显）
         border: isDark
             ? Border.all(
                 color: isMain
@@ -165,7 +221,6 @@ class _PlayerPageState extends State<PlayerPage> {
       isMain: true,
       child: Stack(
         children: [
-          // 频谱视图
           Padding(
             padding: const EdgeInsets.all(16),
             child: VisualizerView(
@@ -173,7 +228,7 @@ class _PlayerPageState extends State<PlayerPage> {
               fixedStyle: _visualizerStyle,
             ),
           ),
-          // 全屏按钮 — 左上角
+          // 全屏按钮
           Positioned(
             top: 8,
             left: 8,
@@ -212,11 +267,39 @@ class _PlayerPageState extends State<PlayerPage> {
               },
             ),
           ),
-          // 效果选择 — 右上角
+          // 右上角控制按钮组
           Positioned(
             top: 8,
             right: 8,
-            child: _buildStyleSelector(scheme, isDark),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 歌词折叠按钮
+                _buildIconAction(
+                  icon: _lyricsExpanded
+                      ? Icons.lyrics_rounded
+                      : Icons.lyrics_outlined,
+                  tooltip: _lyricsExpanded ? '收起歌词' : '展开歌词',
+                  scheme: scheme,
+                  isDark: isDark,
+                  onPressed: () => setState(() => _lyricsExpanded = !_lyricsExpanded),
+                ),
+                const SizedBox(width: 6),
+                // 播放列表折叠按钮
+                _buildIconAction(
+                  icon: _playlistExpanded
+                      ? Icons.playlist_remove_rounded
+                      : Icons.playlist_play_rounded,
+                  tooltip: _playlistExpanded ? '收起播放列表' : '展开播放列表',
+                  scheme: scheme,
+                  isDark: isDark,
+                  onPressed: () => setState(() => _playlistExpanded = !_playlistExpanded),
+                ),
+                const SizedBox(width: 6),
+                // 频谱样式
+                _buildStyleSelector(scheme, isDark),
+              ],
+            ),
           ),
         ],
       ),
@@ -323,6 +406,59 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 通用的可折叠区块头部
+  Widget _buildSectionHeader({
+    required String title,
+    required IconData icon,
+    required bool isExpanded,
+    required VoidCallback onToggle,
+    required ColorScheme scheme,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onToggle,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 16, color: scheme.primary),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurface,
+                ),
+              ),
+              const Spacer(),
+              AnimatedRotation(
+                turns: isExpanded ? 0.0 : -0.25,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOutCubic,
+                child: Icon(
+                  Icons.expand_more_rounded,
+                  size: 22,
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 歌词卡片（宽布局 — 带可折叠头部）
   Widget _buildLyricsCard(
     BuildContext context,
     ColorScheme scheme,
@@ -334,45 +470,28 @@ class _PlayerPageState extends State<PlayerPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    Icons.lyrics_outlined,
-                    size: 16,
-                    color: scheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '歌词',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-              ],
-            ),
+          _buildSectionHeader(
+            title: '歌词',
+            icon: Icons.lyrics_outlined,
+            isExpanded: _lyricsExpanded,
+            onToggle: () => setState(() => _lyricsExpanded = !_lyricsExpanded),
+            scheme: scheme,
           ),
-          const Expanded(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: LyricView(),
-            ),
-          ),
+          Expanded(child: _buildLyricsContent()),
         ],
       ),
     );
   }
 
+  /// 歌词内容
+  Widget _buildLyricsContent() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 8),
+      child: LyricView(),
+    );
+  }
+
+  /// 播放列表卡片（宽布局 — 带可折叠头部）
   Widget _buildPlaylistCard(
     BuildContext context,
     ColorScheme scheme,
@@ -384,33 +503,12 @@ class _PlayerPageState extends State<PlayerPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    Icons.queue_music_rounded,
-                    size: 16,
-                    color: scheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  '播放列表',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-              ],
-            ),
+          _buildSectionHeader(
+            title: '播放列表',
+            icon: Icons.queue_music_rounded,
+            isExpanded: _playlistExpanded,
+            onToggle: () => setState(() => _playlistExpanded = !_playlistExpanded),
+            scheme: scheme,
           ),
           const Expanded(child: PlaylistPanel()),
         ],

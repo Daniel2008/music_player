@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/favorites_provider.dart';
@@ -39,17 +40,30 @@ class _FavoritesPageState extends State<FavoritesPage> {
     final favoritesProvider = context.watch<FavoritesProvider>();
     final apiSettings = context.watch<ApiSettingsProvider>();
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final favorites = favoritesProvider.favorites;
 
     final currentQuality = _quality ?? apiSettings.playQuality.brValue;
 
     return Column(
       children: [
-        // 头部
+        // 头部 — 毛玻璃效果
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: scheme.surfaceContainerLow,
+            gradient: LinearGradient(
+              colors: isDark
+                  ? [
+                      Colors.red.withValues(alpha: 0.08),
+                      scheme.surface,
+                    ]
+                  : [
+                      Colors.red.withValues(alpha: 0.05),
+                      scheme.surfaceContainerLow,
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             border: Border(
               bottom: BorderSide(
                 color: scheme.outlineVariant.withValues(alpha: 0.3),
@@ -58,8 +72,35 @@ class _FavoritesPageState extends State<FavoritesPage> {
           ),
           child: Row(
             children: [
-              const Icon(Icons.favorite, color: Colors.red, size: 28),
-              const SizedBox(width: 12),
+              // 收藏图标 — 带发光效果
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.red.withValues(alpha: 0.8),
+                      Colors.pink.withValues(alpha: 0.6),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withValues(alpha: 0.25),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.favorite_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -70,9 +111,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       '${favorites.length} 首歌曲',
-                      style: TextStyle(color: scheme.outline),
+                      style: TextStyle(
+                        color: scheme.outline,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -81,8 +126,14 @@ class _FavoritesPageState extends State<FavoritesPage> {
               if (favorites.isNotEmpty) ...[
                 FilledButton.tonalIcon(
                   onPressed: () => _playAll(context, favorites, currentQuality),
-                  icon: const Icon(Icons.play_arrow, size: 20),
+                  icon: const Icon(Icons.play_arrow_rounded, size: 20),
                   label: const Text('播放全部'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 12),
               ],
@@ -90,6 +141,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
               PopupMenuButton<String>(
                 initialValue: currentQuality,
                 onSelected: (v) => setState(() => _quality = v),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: Chip(
                   label: Text(
                     _getQualityOptions()
@@ -113,31 +167,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
         // 收藏列表
         Expanded(
           child: favorites.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.favorite_border,
-                        size: 64,
-                        color: scheme.outline.withValues(alpha: 0.5),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '暂无收藏',
-                        style: TextStyle(color: scheme.outline, fontSize: 16),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '在搜索结果中点击 ❤ 添加收藏',
-                        style: TextStyle(color: scheme.outline, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                )
+              ? _buildEmptyState(scheme)
               : ListView.builder(
                   itemCount: favorites.length,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 12,
+                  ),
                   itemBuilder: (context, index) {
                     final t = favorites[index];
                     return _FavoriteItem(
@@ -149,6 +185,54 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildEmptyState(ColorScheme scheme) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 渐变圆形图标
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  Colors.red.withValues(alpha: 0.15),
+                  Colors.pink.withValues(alpha: 0.08),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Icon(
+              Icons.favorite_border_rounded,
+              size: 40,
+              color: Colors.red.withValues(alpha: 0.4),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '暂无收藏',
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '在搜索结果中点击 ❤ 添加收藏',
+            style: TextStyle(
+              color: scheme.outline.withValues(alpha: 0.6),
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -191,7 +275,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 }
 
-class _FavoriteItem extends StatelessWidget {
+class _FavoriteItem extends StatefulWidget {
   final GdSearchTrack track;
   final int index;
   final String quality;
@@ -203,66 +287,254 @@ class _FavoriteItem extends StatelessWidget {
   });
 
   @override
+  State<_FavoriteItem> createState() => _FavoriteItemState();
+}
+
+class _FavoriteItemState extends State<_FavoriteItem> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final playerProvider = context.read<PlayerProvider>();
-    final playlistProvider = context.read<PlaylistProvider>();
     final favoritesProvider = context.read<FavoritesProvider>();
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Colors.red.withValues(alpha: 0.1),
-        child: const Icon(Icons.music_note, color: Colors.red),
-      ),
-      title: Text(
-        track.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w500),
-      ),
-      subtitle: Text(
-        [
-          track.artistText,
-          track.album,
-          track.source,
-        ].where((s) => s.isNotEmpty).join(' · '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.favorite, color: Colors.red),
-            tooltip: '取消收藏',
-            onPressed: () async {
-              await favoritesProvider.toggleFavorite(track);
-            },
+    // 构建封面 URL
+    final gdApi = context.read<GdMusicApiClient>();
+    final coverUrl = gdApi.buildCoverUrl(widget.track.picId, widget.track.source);
+
+    return Dismissible(
+      key: ValueKey('fav_${widget.track.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            colors: [
+              Colors.transparent,
+              scheme.error.withValues(alpha: 0.15),
+              scheme.error.withValues(alpha: 0.3),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.play_circle_filled),
-            tooltip: '播放',
-            color: scheme.primary,
-            onPressed: () =>
-                _playTrack(context, playerProvider, playlistProvider),
+        ),
+        child: Icon(
+          Icons.delete_outline_rounded,
+          color: scheme.error,
+          size: 24,
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        return true;
+      },
+      onDismissed: (direction) {
+        favoritesProvider.toggleFavorite(widget.track);
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('已取消收藏: ${widget.track.name}'),
+              action: SnackBarAction(
+                label: '撤销',
+                onPressed: () => favoritesProvider.toggleFavorite(widget.track),
+              ),
+            ),
+          );
+      },
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: _isHovered
+                ? (isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : scheme.primaryContainer.withValues(alpha: 0.15))
+                : Colors.transparent,
+            border: _isHovered
+                ? Border.all(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    width: 1,
+                  )
+                : Border.all(color: Colors.transparent, width: 1),
           ),
-        ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                // 封面图
+                _buildCoverArt(coverUrl, scheme),
+                const SizedBox(width: 14),
+                // 歌曲信息
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.track.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        [
+                          widget.track.artistText,
+                          widget.track.album,
+                          widget.track.source,
+                        ].where((s) => s.isNotEmpty).join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 操作按钮
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 取消收藏按钮
+                    Tooltip(
+                      message: '取消收藏',
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => favoritesProvider.toggleFavorite(widget.track),
+                          borderRadius: BorderRadius.circular(20),
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.favorite,
+                              color: Colors.red,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 播放按钮
+                    const SizedBox(width: 2),
+                    _buildPlayButton(context, scheme),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Future<void> _playTrack(
-    BuildContext context,
-    PlayerProvider playerProvider,
-    PlaylistProvider playlistProvider,
-  ) async {
-    final newTrack = Track.fromGdSearchTrack(track);
+  Widget _buildCoverArt(String? coverUrl, ColorScheme scheme) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: Colors.red.withValues(alpha: 0.1),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.shadow.withValues(alpha: 0.08),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: coverUrl != null
+            ? CachedNetworkImage(
+                imageUrl: coverUrl,
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+                placeholder: (ctx, url) => _buildCoverPlaceholder(),
+                errorWidget: (ctx, url, err) => _buildCoverPlaceholder(),
+              )
+            : _buildCoverPlaceholder(),
+      ),
+    );
+  }
+
+  Widget _buildCoverPlaceholder() {
+    return Container(
+      color: Colors.red.withValues(alpha: 0.1),
+      child: Center(
+        child: Icon(
+          Icons.music_note_rounded,
+          size: 20,
+          color: Colors.red.withValues(alpha: 0.4),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayButton(BuildContext context, ColorScheme scheme) {
+    return Tooltip(
+      message: '播放',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _playTrack(context),
+          borderRadius: BorderRadius.circular(22),
+          child: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  scheme.primary,
+                  scheme.primary.withValues(alpha: 0.8),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: _isHovered
+                  ? [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: 0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Icon(
+              Icons.play_arrow_rounded,
+              size: 22,
+              color: scheme.onPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playTrack(BuildContext context) async {
+    final playerProvider = context.read<PlayerProvider>();
+    final playlistProvider = context.read<PlaylistProvider>();
+    final newTrack = Track.fromGdSearchTrack(widget.track);
     playlistProvider.addOrSelectTrack(newTrack);
 
     // 解析并播放
     final ok = await playerProvider.resolveAndPlayTrackUrl(
-      track,
-      br: quality,
+      widget.track,
+      br: widget.quality,
       playlistProvider: playlistProvider,
     );
 

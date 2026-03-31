@@ -70,7 +70,6 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   @override
   Widget build(BuildContext context) {
-    final playerProvider = context.watch<PlayerProvider>();
     final playlistProvider = context.watch<PlaylistProvider>();
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -82,21 +81,16 @@ class _MiniPlayerState extends State<MiniPlayer>
         ? playlistProvider.current
         : null;
 
-    // 空状态折叠
-    if (track == null && !playerProvider.isPlaying) {
-      return _buildEmptyState(context, scheme, isDark, playlistProvider);
-    }
-
-    final pos = playerProvider.position.inMilliseconds;
-    final dur = max(1, playerProvider.duration.inMilliseconds);
-    final progress = (pos / dur).clamp(0.0, 1.0);
-    final sliderValue = _dragValue ?? progress;
-
-    // 直接同步旋转动画
-    if (playerProvider.isPlaying && !_rotationController.isAnimating) {
-      _rotationController.repeat();
-    } else if (!playerProvider.isPlaying && _rotationController.isAnimating) {
-      _rotationController.stop();
+    // 空状态折叠 — 用 Consumer 检查 isPlaying
+    if (track == null) {
+      return Consumer<PlayerProvider>(
+        builder: (context, player, _) {
+          if (!player.isPlaying) {
+            return _buildEmptyState(context, scheme, isDark, playlistProvider);
+          }
+          return const SizedBox.shrink();
+        },
+      );
     }
 
     return Container(
@@ -128,26 +122,56 @@ class _MiniPlayerState extends State<MiniPlayer>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 渐变进度条
-          _buildGradientProgress(context, playerProvider, sliderValue, scheme),
+          // 渐变进度条 — 高频更新，独立 Consumer
+          Consumer<PlayerProvider>(
+            builder: (context, playerProvider, _) {
+              final pos = playerProvider.position.inMilliseconds;
+              final dur = max(1, playerProvider.duration.inMilliseconds);
+              final progress = (pos / dur).clamp(0.0, 1.0);
+              final sliderValue = _dragValue ?? progress;
+              return _buildGradientProgress(context, playerProvider, sliderValue, scheme);
+            },
+          ),
           // 主内容区域
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
             child: Row(
               children: [
-                // 专辑封面（旋转）
-                _buildRotatingAlbumArt(track, playerProvider.isPlaying, scheme),
+                // 专辑封面（旋转） — 仅需 isPlaying
+                Consumer<PlayerProvider>(
+                  builder: (context, player, _) {
+                    // 同步旋转动画
+                    if (player.isPlaying && !_rotationController.isAnimating) {
+                      _rotationController.repeat();
+                    } else if (!player.isPlaying && _rotationController.isAnimating) {
+                      _rotationController.stop();
+                    }
+                    return _buildRotatingAlbumArt(track, player.isPlaying, scheme);
+                  },
+                ),
                 const SizedBox(width: 14),
-                // 曲目信息
+                // 曲目信息 — 位置/时长需要高频更新
                 Expanded(
                   flex: 2,
-                  child: _buildTrackInfo(track, playerProvider, scheme),
+                  child: Consumer<PlayerProvider>(
+                    builder: (context, player, _) {
+                      return _buildTrackInfo(track, player, scheme);
+                    },
+                  ),
                 ),
-                // 播放控制
-                _buildPlayControls(playerProvider, playlistProvider, scheme),
+                // 播放控制 — 需要 isPlaying
+                Consumer<PlayerProvider>(
+                  builder: (context, player, _) {
+                    return _buildPlayControls(player, playlistProvider, scheme);
+                  },
+                ),
                 const SizedBox(width: 8),
                 // 音量控制
-                _buildVolumeControl(playerProvider, scheme),
+                Consumer<PlayerProvider>(
+                  builder: (context, player, _) {
+                    return _buildVolumeControl(player, scheme);
+                  },
+                ),
               ],
             ),
           ),
@@ -278,19 +302,22 @@ class _MiniPlayerState extends State<MiniPlayer>
         child: ClipOval(
           child: Stack(
             children: [
-              // 专辑图片
-              if (track?.artUri != null)
-                CachedNetworkImage(
-                  imageUrl: track!.artUri!,
-                  width: 52,
-                  height: 52,
-                  fit: BoxFit.cover,
-                  placeholder: (ctx, url) => _buildAlbumPlaceholder(scheme),
-                  errorWidget: (ctx, url, err) =>
-                      _buildAlbumPlaceholder(scheme),
-                )
-              else
-                _buildAlbumPlaceholder(scheme),
+              // 专辑图片 — 切换时交叉淡入淡出
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 500),
+                child: track?.artUri != null
+                    ? CachedNetworkImage(
+                        key: ValueKey(track!.artUri),
+                        imageUrl: track.artUri!,
+                        width: 52,
+                        height: 52,
+                        fit: BoxFit.cover,
+                        placeholder: (ctx, url) => _buildAlbumPlaceholder(scheme),
+                        errorWidget: (ctx, url, err) =>
+                            _buildAlbumPlaceholder(scheme),
+                      )
+                    : _buildAlbumPlaceholder(scheme),
+              ),
               // 中心唱片圆点
               Center(
                 child: Container(
@@ -341,33 +368,59 @@ class _MiniPlayerState extends State<MiniPlayer>
     PlayerProvider playerProvider,
     ColorScheme scheme,
   ) {
+    final trackTitle = track?.title ?? '未选择歌曲';
+    final trackArtist = track?.artist as String?;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          track?.title ?? '未选择歌曲',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-            color: scheme.onSurface,
-            letterSpacing: 0.1,
+        // 歌曲名 — 切换动画
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 350),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          transitionBuilder: (child, animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.3),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            );
+          },
+          child: Text(
+            trackTitle,
+            key: ValueKey(trackTitle),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              color: scheme.onSurface,
+              letterSpacing: 0.1,
+            ),
           ),
         ),
         const SizedBox(height: 3),
         Row(
           children: [
-            if (track?.artist != null) ...[
+            if (trackArtist != null) ...[
               Flexible(
-                child: Text(
-                  track!.artist!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Text(
+                    trackArtist,
+                    key: ValueKey(trackArtist),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    ),
                   ),
                 ),
               ),
@@ -594,7 +647,7 @@ class _MiniPlayerState extends State<MiniPlayer>
         _buildVolumeIcon(playerProvider.volume, scheme),
         const SizedBox(width: 4),
         SizedBox(
-          width: 85,
+          width: 100,
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: 3,
@@ -607,6 +660,8 @@ class _MiniPlayerState extends State<MiniPlayer>
             ),
             child: Slider(
               value: playerProvider.volume,
+              min: 0,
+              max: 2.0,
               onChanged: (v) => playerProvider.setVolume(v),
             ),
           ),
@@ -619,9 +674,9 @@ class _MiniPlayerState extends State<MiniPlayer>
     IconData icon;
     if (volume == 0) {
       icon = Icons.volume_off_rounded;
-    } else if (volume < 0.3) {
+    } else if (volume < 0.5) {
       icon = Icons.volume_mute_rounded;
-    } else if (volume < 0.7) {
+    } else if (volume < 1.2) {
       icon = Icons.volume_down_rounded;
     } else {
       icon = Icons.volume_up_rounded;

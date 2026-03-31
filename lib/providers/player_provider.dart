@@ -31,6 +31,7 @@ class PlayerProvider extends ChangeNotifier {
   double volume = 1.0;
   bool isPlaying = false;
   Duration position = Duration.zero;
+  Duration _lastNotifiedPosition = Duration.zero;
   Duration duration = Duration.zero;
 
   bool isResolvingUrl = false;
@@ -76,11 +77,12 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  /// 更新 FFT 和波形数据
+  /// 更新 FFT 和波形数据 — 零分配热路径
   void _updateAudioData() {
     if (!_initialized || _audioData == null || !isPlaying) {
-      fftData = Float32List(256);
-      waveData = Float32List(256);
+      // 就地清零，不分配新数组
+      fftData.fillRange(0, fftData.length, 0);
+      waveData.fillRange(0, waveData.length, 0);
       return;
     }
 
@@ -88,11 +90,14 @@ class PlayerProvider extends ChangeNotifier {
       _audioData!.updateSamples();
       final samples = _audioData!.getAudioData();
       if (samples.length >= 512) {
-        fftData = samples.sublist(0, 256);
-        waveData = samples.sublist(256, 512);
+        // 复制到预分配缓冲区，避免 sublist 分配新数组
+        for (var i = 0; i < 256; i++) {
+          fftData[i] = samples[i];
+          waveData[i] = samples[i + 256];
+        }
       }
     } catch (e) {
-      // 静默处理错误，避免频繁打印日志
+      // 静默处理错误
     }
   }
 
@@ -109,8 +114,7 @@ class PlayerProvider extends ChangeNotifier {
         _currentSource = await _soloud.loadUrl(track.path);
       } else {
         // 本地文件
-        final path = await _resolveSourcePath(track.path);
-        _currentSource = await _soloud.loadFile(path);
+        _currentSource = await _soloud.loadFile(track.path);
       }
 
       if (_currentSource != null) {
@@ -144,6 +148,7 @@ class PlayerProvider extends ChangeNotifier {
 
   void _startPositionTimer() {
     _positionTimer?.cancel();
+    _lastNotifiedPosition = Duration.zero;
     _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (
       _,
     ) async {
@@ -157,14 +162,17 @@ class PlayerProvider extends ChangeNotifier {
           }
 
           final pos = _soloud.getPosition(_currentHandle!);
-          final posChanged = (pos - position).abs() > const Duration(milliseconds: 30);
           position = pos;
 
           // 更新 FFT 数据（不触发 notifyListeners，频谱视图自行读取）
           _updateAudioData();
 
-          // 仅在位置有明显变化时通知（避免过于频繁的全局重建）
+          // 通知频率降低到 250ms，减少 UI 重建次数
+          final posChanged = (pos - _lastNotifiedPosition).abs() >
+              const Duration(milliseconds: 250);
+
           if (posChanged) {
+            _lastNotifiedPosition = pos;
             notifyListeners();
           }
         } catch (e) {
@@ -174,9 +182,6 @@ class PlayerProvider extends ChangeNotifier {
     });
   }
 
-  Future<String> _resolveSourcePath(String path) async {
-    return path;
-  }
 
   /// 解析并播放在线曲目
   Future<bool> resolveAndPlayTrackUrl(
@@ -474,8 +479,8 @@ class PlayerProvider extends ChangeNotifier {
     }
     isPlaying = false;
     position = Duration.zero;
-    fftData = Float32List(256);
-    waveData = Float32List(256);
+    fftData.fillRange(0, fftData.length, 0);
+    waveData.fillRange(0, waveData.length, 0);
     notifyListeners();
   }
 
@@ -484,6 +489,7 @@ class PlayerProvider extends ChangeNotifier {
       final clamped = _clampDuration(d, Duration.zero, duration);
       _soloud.seek(_currentHandle!, clamped);
       position = clamped;
+      _lastNotifiedPosition = clamped;
       notifyListeners();
     }
   }
@@ -500,8 +506,8 @@ class PlayerProvider extends ChangeNotifier {
     _positionTimer?.cancel();
     isPlaying = false;
     position = Duration.zero;
-    fftData = Float32List(256);
-    waveData = Float32List(256);
+    fftData.fillRange(0, fftData.length, 0);
+    waveData.fillRange(0, waveData.length, 0);
     notifyListeners();
     onTrackComplete?.call();
   }
