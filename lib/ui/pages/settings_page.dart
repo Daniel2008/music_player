@@ -4,6 +4,7 @@ import '../../providers/theme_provider.dart';
 import '../../providers/api_settings_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/search_provider.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -97,6 +98,14 @@ class _SettingsPageState extends State<SettingsPage> {
                             _apiUrlController.text,
                           );
                           if (context.mounted) {
+                            // 同步到其他 provider
+                            final downloadProv = context.read<DownloadProvider>();
+                            downloadProv.updateApiBaseUrl(apiSettings.apiBaseUrl);
+                            playerProvider.gdApi.updateBaseUrl(apiSettings.apiBaseUrl);
+                            context.read<SearchProvider>().updateApiSettings(
+                              baseUrl: apiSettings.apiBaseUrl,
+                              timeoutSeconds: apiSettings.requestTimeout,
+                            );
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('API 地址已保存')),
                             );
@@ -150,7 +159,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   divisions: 25,
                   label: '${apiSettings.requestTimeout}秒',
                   onChanged: (value) {
-                    apiSettings.setRequestTimeout(value.round());
+                    final seconds = value.round();
+                    apiSettings.setRequestTimeout(seconds);
+                    // 同步到其他 provider
+                    playerProvider.gdApi.updateTimeoutSeconds(seconds);
+                    context.read<DownloadProvider>().updateTimeout(seconds);
+                    context.read<SearchProvider>().updateApiSettings(
+                      baseUrl: apiSettings.apiBaseUrl,
+                      timeoutSeconds: seconds,
+                    );
                   },
                 ),
               ),
@@ -872,73 +889,92 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showSkinPicker(BuildContext context, ThemeProvider theme) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('选择皮肤', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _skinOption(context, theme, '默认', Colors.blue, null),
-                _skinOption(
-                  context,
-                  theme,
-                  '经典蓝',
-                  Colors.indigo,
-                  'classic_blue',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('选择主题色', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(
+                '选择一种颜色作为应用的主题色',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.outline,
+                  fontSize: 14,
                 ),
-                _skinOption(context, theme, '森林暗色', Colors.teal, 'forest_dark'),
-                _skinOption(context, theme, '玫瑰粉', Colors.pink, 'rose_pink'),
-                _skinOption(
-                  context,
-                  theme,
-                  '日落橙',
-                  Colors.orange,
-                  'sunset_orange',
-                ),
-                _skinOption(context, theme, '薰衣草', Colors.purple, 'lavender'),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _skinOption(
-    BuildContext context,
-    ThemeProvider theme,
-    String name,
-    Color color,
-    String? skinFile,
-  ) {
-    return InkWell(
-      onTap: () {
-        if (skinFile != null) {
-          theme.loadSkin('assets/skins/$skinFile.json');
-        }
-        Navigator.pop(context);
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: 80,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).colorScheme.outline),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            CircleAvatar(backgroundColor: color, radius: 20),
-            const SizedBox(height: 8),
-            Text(name, style: const TextStyle(fontSize: 12)),
-          ],
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: ThemeProvider.presetColors.map((preset) {
+                  final isSelected =
+                      theme.seedColor.toARGB32() == preset.color.toARGB32();
+                  return InkWell(
+                    onTap: () {
+                      theme.setSeedColor(preset.color);
+                      setSheetState(() {});
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      width: 72,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: isSelected
+                              ? preset.color
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .outline
+                                  .withValues(alpha: 0.3),
+                          width: isSelected ? 2.5 : 1,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        color: isSelected
+                            ? preset.color.withValues(alpha: 0.1)
+                            : null,
+                      ),
+                      child: Column(
+                        children: [
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: preset.color,
+                                radius: 18,
+                              ),
+                              if (isSelected)
+                                const Icon(
+                                  Icons.check_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            preset.name,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                              color: isSelected
+                                  ? preset.color
+                                  : Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );

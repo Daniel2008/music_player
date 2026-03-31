@@ -107,12 +107,33 @@ class PlaylistPanel extends StatelessWidget {
         ),
         // 列表
         Expanded(
-          child: ListView.builder(
+          child: ReorderableListView.builder(
             itemCount: tracks.length,
+            onReorder: (oldIndex, newIndex) {
+              playlistProvider.reorderTrack(oldIndex, newIndex);
+            },
+            proxyDecorator: (child, index, animation) {
+              return AnimatedBuilder(
+                animation: animation,
+                builder: (context, child) {
+                  final elevation = Tween<double>(
+                    begin: 0,
+                    end: 6,
+                  ).animate(animation).value;
+                  return Material(
+                    elevation: elevation,
+                    borderRadius: BorderRadius.circular(8),
+                    child: child,
+                  );
+                },
+                child: child,
+              );
+            },
             itemBuilder: (context, index) {
               final t = tracks[index];
               final isPlaying = current?.id == t.id;
               return ListTile(
+                key: ValueKey(t.id),
                 dense: true,
                 selected: isPlaying,
                 selectedTileColor: scheme.primaryContainer.withValues(
@@ -140,18 +161,34 @@ class PlaylistPanel extends StatelessWidget {
                     fontWeight: isPlaying ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
-                trailing: IconButton(
-                  icon: Icon(Icons.close, size: 16, color: scheme.outline),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '移除',
-                  onPressed: () => playlistProvider.removeTrack(index),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.close, size: 16, color: scheme.outline),
+                      visualDensity: VisualDensity.compact,
+                      tooltip: '移除',
+                      onPressed: () => playlistProvider.removeTrack(index),
+                    ),
+                    ReorderableDragStartListener(
+                      index: index,
+                      child: Icon(
+                        Icons.drag_handle,
+                        size: 18,
+                        color: scheme.outline.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ],
                 ),
                 onTap: () {
                   playlistProvider.setCurrentIndex(index);
                   // 安全检查后再播放
                   if (playlistProvider.currentIndex >= 0 &&
                       playlistProvider.currentIndex < tracks.length) {
-                    playerProvider.playTrack(playlistProvider.current!);
+                    playerProvider.playTrackSmart(
+                      playlistProvider.current!,
+                      playlistProvider: playlistProvider,
+                    );
                   }
                 },
               );

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/gd_music_api.dart';
 
 /// 音质选项
 enum AudioQuality {
@@ -50,6 +51,7 @@ class MusicSources {
     MusicSource(id: 'netease', name: '网易云音乐', isStable: true),
     MusicSource(id: 'kuwo', name: '酷我音乐', isStable: true),
     MusicSource(id: 'joox', name: 'JOOX', isStable: true),
+    MusicSource(id: 'bilibili', name: 'Bilibili', isStable: true),
     MusicSource(id: 'tencent', name: 'QQ音乐'),
     MusicSource(id: 'kugou', name: '酷狗音乐'),
     MusicSource(id: 'migu', name: '咪咕音乐'),
@@ -284,33 +286,19 @@ class ApiSettingsProvider extends ChangeNotifier {
   /// 测试 API 连接
   Future<bool> testConnection() async {
     try {
-      final uri = apiUri.replace(
-        queryParameters: {
-          'types': 'search',
-          'source': 'netease',
-          'name': 'test',
-          'count': '1',
-        },
+      final client = GdMusicApiClient(
+        baseUrl: _apiBaseUrl,
+        timeout: Duration(seconds: _requestTimeout),
       );
-
-      final response = await Future.any([
-        _makeRequest(uri),
-        Future.delayed(
-          Duration(seconds: _requestTimeout),
-          () => throw TimeoutException('Connection timeout'),
-        ),
-      ]);
-
-      return response;
+      try {
+        final result = await client.testConnection();
+        return result;
+      } finally {
+        client.close();
+      }
     } catch (_) {
       return false;
     }
-  }
-
-  Future<bool> _makeRequest(Uri uri) async {
-    // 这里只是验证 URI 格式，实际测试需要 HTTP 客户端
-    // 返回 true 表示 URI 格式有效
-    return uri.hasScheme && uri.hasAuthority;
   }
 }
 

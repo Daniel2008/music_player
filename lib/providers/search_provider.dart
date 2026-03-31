@@ -13,6 +13,12 @@ class SearchProvider extends ChangeNotifier {
   SearchProvider({GdMusicApiClient? gdApi}) 
     : _gdApi = gdApi ?? GdMusicApiClient();
 
+  /// 更新 API 设置
+  void updateApiSettings({required String baseUrl, required int timeoutSeconds}) {
+    _gdApi.updateBaseUrl(baseUrl);
+    _gdApi.updateTimeoutSeconds(timeoutSeconds);
+  }
+
   Future<void> searchOnline(String keyword, {String source = 'netease'}) async {
     final q = keyword.trim();
     if (q.isEmpty) {

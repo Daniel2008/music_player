@@ -5,13 +5,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 
-/// 播放模式枚举
-enum PlayMode {
-  sequence, // 顺序播放
-  loop, // 列表循环
-  single, // 单曲循环
-  shuffle, // 随机播放
-}
 
 /// 固定在底部的迷你播放控制栏
 class MiniPlayer extends StatefulWidget {
@@ -25,7 +18,6 @@ class _MiniPlayerState extends State<MiniPlayer>
     with SingleTickerProviderStateMixin {
   double? _dragValue;
   late final AnimationController _rotationController;
-  PlayMode _playMode = PlayMode.sequence;
 
   @override
   void initState() {
@@ -60,17 +52,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
   }
 
-  void _cyclePlayMode() {
-    setState(() {
-      final modes = PlayMode.values;
-      final nextIndex = (modes.indexOf(_playMode) + 1) % modes.length;
-      _playMode = modes[nextIndex];
-    });
-    // TODO: 实际应用播放模式到播放器
-  }
-
-  IconData _getPlayModeIcon() {
-    switch (_playMode) {
+  IconData _getPlayModeIcon(PlayMode mode) {
+    switch (mode) {
       case PlayMode.sequence:
         return Icons.arrow_forward_rounded;
       case PlayMode.loop:
@@ -82,8 +65,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     }
   }
 
-  String _getPlayModeTooltip() {
-    switch (_playMode) {
+  String _getPlayModeTooltip(PlayMode mode) {
+    switch (mode) {
       case PlayMode.sequence:
         return '顺序播放';
       case PlayMode.loop:
@@ -375,8 +358,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 播放模式按钮（合并了随机和循环）
-        _buildPlayModeButton(scheme),
+        // 播放模式按钮
+        _buildPlayModeButton(context, scheme),
         const SizedBox(width: 4),
         // 上一首
         _buildControlButton(
@@ -385,7 +368,10 @@ class _MiniPlayerState extends State<MiniPlayer>
           onPressed: () async {
             playlistProvider.previous();
             if (playlistProvider.current != null) {
-              await playerProvider.playTrack(playlistProvider.current!);
+              await playerProvider.playTrackSmart(
+                playlistProvider.current!,
+                playlistProvider: playlistProvider,
+              );
             }
           },
           scheme: scheme,
@@ -401,7 +387,10 @@ class _MiniPlayerState extends State<MiniPlayer>
           onPressed: () async {
             playlistProvider.next();
             if (playlistProvider.current != null) {
-              await playerProvider.playTrack(playlistProvider.current!);
+              await playerProvider.playTrackSmart(
+                playlistProvider.current!,
+                playlistProvider: playlistProvider,
+              );
             }
           },
           scheme: scheme,
@@ -410,15 +399,17 @@ class _MiniPlayerState extends State<MiniPlayer>
     );
   }
 
-  Widget _buildPlayModeButton(ColorScheme scheme) {
-    final isActive = _playMode != PlayMode.sequence;
+  Widget _buildPlayModeButton(BuildContext context, ColorScheme scheme) {
+    final playlistProvider = context.watch<PlaylistProvider>();
+    final mode = playlistProvider.playMode;
+    final isActive = mode != PlayMode.sequence;
 
     return Tooltip(
-      message: _getPlayModeTooltip(),
+      message: _getPlayModeTooltip(mode),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _cyclePlayMode,
+          onTap: () => playlistProvider.cyclePlayMode(),
           borderRadius: BorderRadius.circular(16),
           child: Container(
             width: 36,
@@ -430,7 +421,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                   : Colors.transparent,
             ),
             child: Icon(
-              _getPlayModeIcon(),
+              _getPlayModeIcon(mode),
               size: 18,
               color: isActive ? scheme.primary : scheme.outline,
             ),
@@ -484,7 +475,10 @@ class _MiniPlayerState extends State<MiniPlayer>
               // 如果有当前曲目且播放器没有时长（说明没有加载音频），先加载曲目
               final current = playlistProvider.current;
               if (current != null && playerProvider.duration == Duration.zero) {
-                await playerProvider.playTrack(current);
+                await playerProvider.playTrackSmart(
+                  current,
+                  playlistProvider: playlistProvider,
+                );
               } else {
                 await playerProvider.play();
               }

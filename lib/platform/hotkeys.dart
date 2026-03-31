@@ -25,7 +25,10 @@ class Hotkeys {
         } else {
           final current = playlist.current;
           if (current != null && p.duration == Duration.zero) {
-            await p.playTrack(current);
+            await p.playTrackSmart(
+              current,
+              playlistProvider: playlist,
+            );
           } else {
             p.play();
           }

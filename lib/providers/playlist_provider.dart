@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -6,9 +7,33 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 
+/// 播放模式枚举
+enum PlayMode {
+  sequence, // 顺序播放（播完最后一首停止）
+  loop,     // 列表循环
+  single,   // 单曲循环
+  shuffle,  // 随机播放
+}
+
 class PlaylistProvider extends ChangeNotifier {
   final Playlist playlist;
   static const String _storageKey = 'saved_playlist';
+  final Random _random = Random();
+
+  PlayMode _playMode = PlayMode.loop;
+  PlayMode get playMode => _playMode;
+
+  void setPlayMode(PlayMode mode) {
+    _playMode = mode;
+    notifyListeners();
+  }
+
+  /// 循环切换播放模式
+  void cyclePlayMode() {
+    final modes = PlayMode.values;
+    final nextIndex = (modes.indexOf(_playMode) + 1) % modes.length;
+    setPlayMode(modes[nextIndex]);
+  }
 
   PlaylistProvider({Playlist? initialPlaylist})
     : playlist = initialPlaylist ?? Playlist(name: '默认播放列表');
@@ -61,13 +86,80 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   void next() {
-    playlist.next();
+    if (playlist.tracks.isEmpty) return;
+    switch (_playMode) {
+      case PlayMode.sequence:
+        // 顺序播放：下一首，播到最后停止
+        if (playlist.currentIndex < playlist.tracks.length - 1) {
+          playlist.currentIndex++;
+        }
+        break;
+      case PlayMode.loop:
+        // 列表循环：下一首，超出则回到开头
+        playlist.currentIndex =
+            (playlist.currentIndex + 1) % playlist.tracks.length;
+        break;
+      case PlayMode.single:
+        // 单曲循环：索引不变
+        break;
+      case PlayMode.shuffle:
+        // 随机播放：随机选择一首（排除当前）
+        if (playlist.tracks.length > 1) {
+          int newIndex;
+          do {
+            newIndex = _random.nextInt(playlist.tracks.length);
+          } while (newIndex == playlist.currentIndex);
+          playlist.currentIndex = newIndex;
+        }
+        break;
+    }
     notifyListeners();
     _savePlaylist();
   }
 
   void previous() {
-    playlist.previous();
+    if (playlist.tracks.isEmpty) return;
+    switch (_playMode) {
+      case PlayMode.sequence:
+      case PlayMode.loop:
+        if (playlist.currentIndex > 0) {
+          playlist.currentIndex--;
+        } else if (_playMode == PlayMode.loop) {
+          playlist.currentIndex = playlist.tracks.length - 1;
+        }
+        break;
+      case PlayMode.single:
+        // 单曲循环：索引不变
+        break;
+      case PlayMode.shuffle:
+        if (playlist.tracks.length > 1) {
+          int newIndex;
+          do {
+            newIndex = _random.nextInt(playlist.tracks.length);
+          } while (newIndex == playlist.currentIndex);
+          playlist.currentIndex = newIndex;
+        }
+        break;
+    }
+    notifyListeners();
+    _savePlaylist();
+  }
+
+  /// 拖拽排序
+  void reorderTrack(int oldIndex, int newIndex) {
+    if (oldIndex < newIndex) newIndex -= 1;
+    final track = playlist.tracks.removeAt(oldIndex);
+    playlist.tracks.insert(newIndex, track);
+    // 如果当前播放的曲目被移动了，更新索引
+    if (playlist.currentIndex == oldIndex) {
+      playlist.currentIndex = newIndex;
+    } else if (oldIndex < playlist.currentIndex &&
+        newIndex >= playlist.currentIndex) {
+      playlist.currentIndex--;
+    } else if (oldIndex > playlist.currentIndex &&
+        newIndex <= playlist.currentIndex) {
+      playlist.currentIndex++;
+    }
     notifyListeners();
     _savePlaylist();
   }

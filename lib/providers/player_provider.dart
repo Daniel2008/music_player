@@ -234,6 +234,57 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  /// 智能播放曲目
+  ///
+  /// 对于本地曲目：直接播放
+  /// 对于远程曲目：如果已有有效 URL 则直接播放，否则通过 API 重新解析 URL
+  /// [playlistProvider] 用于更新播放列表中的曲目信息
+  /// [br] 音质，默认为 999
+  Future<void> playTrackSmart(
+    Track track, {
+    PlaylistProvider? playlistProvider,
+    String br = '999',
+  }) async {
+    // 本地曲目直接播放
+    if (!track.isRemote) {
+      await playTrack(track);
+      return;
+    }
+
+    // 远程曲目：如果已有有效 URL 则直接播放
+    if (track.path.isNotEmpty &&
+        (track.path.startsWith('http://') || track.path.startsWith('https://'))) {
+      await playTrack(track);
+      return;
+    }
+
+    // 远程曲目：路径为空或无效，需要重新解析 URL
+    final source = track.remoteSource;
+    final trackId = track.remoteTrackId;
+    if (source == null || trackId == null) {
+      playError = '无法播放：缺少远程曲目信息';
+      notifyListeners();
+      return;
+    }
+
+    // 构造 GdSearchTrack 用于解析
+    final gdTrack = GdSearchTrack(
+      id: trackId,
+      name: track.title,
+      artists: track.artist != null ? [track.artist!] : [],
+      album: '',
+      picId: null,
+      lyricId: track.remoteLyricId,
+      source: source,
+    );
+
+    await resolveAndPlayTrackUrl(
+      gdTrack,
+      br: br,
+      playlistProvider: playlistProvider,
+    );
+  }
+
   String _friendlyPlayError(
     Object e, {
     required String source,
