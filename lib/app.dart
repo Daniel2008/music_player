@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/theme_provider.dart';
@@ -8,6 +9,7 @@ import 'providers/download_provider.dart';
 import 'providers/history_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/api_settings_provider.dart';
+import 'services/gd_music_api.dart';
 import 'ui/pages/main_layout.dart';
 
 class AppRoot extends StatelessWidget {
@@ -25,7 +27,15 @@ class AppRoot extends StatelessWidget {
             return apiSettings;
           },
         ),
-        ChangeNotifierProvider(create: (_) => PlayerProvider()),
+        // 共享 API 客户端实例 — 所有 Provider 复用同一连接
+        Provider<GdMusicApiClient>(
+          create: (_) => GdMusicApiClient(),
+          dispose: (_, client) => client.close(),
+        ),
+        ChangeNotifierProxyProvider<GdMusicApiClient, PlayerProvider>(
+          create: (ctx) => PlayerProvider(gdApi: ctx.read<GdMusicApiClient>()),
+          update: (_, client, provider) => provider!..updateApiClient(client),
+        ),
         ChangeNotifierProvider(
           create: (_) {
             final playlistProvider = PlaylistProvider();
@@ -33,14 +43,20 @@ class AppRoot extends StatelessWidget {
             return playlistProvider;
           },
         ),
-        ChangeNotifierProvider(create: (_) => SearchProvider()),
-        ChangeNotifierProvider(create: (_) => DownloadProvider()),
+        ChangeNotifierProxyProvider<GdMusicApiClient, SearchProvider>(
+          create: (ctx) => SearchProvider(gdApi: ctx.read<GdMusicApiClient>()),
+          update: (_, client, provider) => provider!,
+        ),
+        ChangeNotifierProxyProvider<GdMusicApiClient, DownloadProvider>(
+          create: (ctx) => DownloadProvider(gdApi: ctx.read<GdMusicApiClient>()),
+          update: (_, client, provider) => provider!,
+        ),
         ChangeNotifierProvider(create: (_) => HistoryProvider()),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, theme, _) {
-          return MaterialApp(
+          Widget app = MaterialApp(
             debugShowCheckedModeBanner: false,
             title: 'Flutter Desktop Music Player',
             themeMode: theme.mode,
@@ -48,6 +64,14 @@ class AppRoot extends StatelessWidget {
             darkTheme: theme.darkTheme,
             home: const _AppInitializer(),
           );
+
+          // Windows 平台禁用无障碍语义树，防止 AXTree 引擎崩溃
+          // （已知的 Flutter Windows 引擎 bug，快速重建 widget 树时会触发）
+          if (Platform.isWindows) {
+            app = ExcludeSemantics(child: app);
+          }
+
+          return app;
         },
       ),
     );
@@ -92,10 +116,10 @@ class _AppInitializerState extends State<_AppInitializer>
     if (!mounted) return;
 
     final apiSettings = context.read<ApiSettingsProvider>();
+    final gdApi = context.read<GdMusicApiClient>();
     final downloadProvider = context.read<DownloadProvider>();
     final playerProvider = context.read<PlayerProvider>();
     final playlistProvider = context.read<PlaylistProvider>();
-    final searchProvider = context.read<SearchProvider>();
 
     // 等待 API 设置初始化完成
     if (!apiSettings.initialized) {
@@ -104,20 +128,12 @@ class _AppInitializerState extends State<_AppInitializer>
 
     if (!mounted) return;
 
-    // 将 API 设置同步到各个管理器
-    downloadProvider.updateApiBaseUrl(apiSettings.apiBaseUrl);
-    downloadProvider.updateTimeout(apiSettings.requestTimeout);
+    // 一次性同步 API 配置到共享客户端
+    gdApi.updateBaseUrl(apiSettings.apiBaseUrl);
+    gdApi.updateTimeoutSeconds(apiSettings.requestTimeout);
+
+    // 仅同步非 API 相关的设置
     downloadProvider.defaultQuality = apiSettings.downloadQuality.brValue;
-
-    // 同步 API 设置到 PlayerProvider
-    playerProvider.gdApi.updateBaseUrl(apiSettings.apiBaseUrl);
-    playerProvider.gdApi.updateTimeoutSeconds(apiSettings.requestTimeout);
-
-    // 同步 API 设置到 SearchProvider
-    searchProvider.updateApiSettings(
-      baseUrl: apiSettings.apiBaseUrl,
-      timeoutSeconds: apiSettings.requestTimeout,
-    );
 
     // 同步歌词自动搜索设置
     playerProvider.autoFetchLyricForLocal = apiSettings.autoFetchLyric;

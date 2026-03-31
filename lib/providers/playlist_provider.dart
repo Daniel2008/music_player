@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -19,6 +20,7 @@ class PlaylistProvider extends ChangeNotifier {
   final Playlist playlist;
   static const String _storageKey = 'saved_playlist';
   final Random _random = Random();
+  Timer? _saveDebounce;
 
   PlayMode _playMode = PlayMode.loop;
   PlayMode get playMode => _playMode;
@@ -237,19 +239,39 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
+  /// 添加或选中已有曲目（统一搜索/收藏播放逻辑）
+  ///
+  /// 返回曲目在播放列表中的索引
+  int addOrSelectTrack(Track track) {
+    final existingIndex = playlist.tracks.indexWhere((t) => t.id == track.id);
+    if (existingIndex >= 0) {
+      setCurrentIndex(existingIndex);
+      return existingIndex;
+    }
+    addTrack(track);
+    final newIndex = playlist.tracks.length - 1;
+    setCurrentIndex(newIndex);
+    return newIndex;
+  }
+
   bool _isAudioFile(String path) {
-    final audioExtensions = ['.mp3', '.wav', '.aac', '.flac', '.ogg', '.wma'];
+    final audioExtensions = [
+      '.mp3', '.wav', '.aac', '.flac', '.ogg', '.wma', '.m4a', '.opus',
+    ];
     final extension = path.toLowerCase().substring(path.lastIndexOf('.'));
     return audioExtensions.contains(extension);
   }
 
-  /// 保存播放列表到本地存储
-  Future<void> _savePlaylist() async {
+  /// 保存播放列表到本地存储（防抖动，避免过于频繁的磁盘写入）
+  void _savePlaylist() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 500), _doSavePlaylist);
+  }
+
+  Future<void> _doSavePlaylist() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final tracksJson = playlist.tracks
-          .map((track) => _trackToJson(track))
-          .toList();
+      final tracksJson = playlist.tracks.map((t) => t.toJson()).toList();
       final data = {
         'name': playlist.name,
         'currentIndex': playlist.currentIndex,
@@ -273,7 +295,7 @@ class PlaylistProvider extends ChangeNotifier {
       final currentIndex = data['currentIndex'] as int? ?? -1;
 
       final tracks = tracksJson
-          .map((json) => _trackFromJson(json as Map<String, dynamic>))
+          .map((json) => Track.fromJson(json as Map<String, dynamic>))
           .whereType<Track>()
           .toList();
 
@@ -286,47 +308,11 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  /// 将 Track 转换为 JSON
-  Map<String, dynamic> _trackToJson(Track track) {
-    return {
-      'id': track.id,
-      'title': track.title,
-      'path': track.path,
-      'artist': track.artist,
-      'artUri': track.artUri,
-      'durationMs': track.duration?.inMilliseconds,
-      'kind': track.kind.index,
-      'remoteSource': track.remoteSource,
-      'remoteTrackId': track.remoteTrackId,
-      'remoteLyricId': track.remoteLyricId,
-      'lyricKey': track.lyricKey,
-    };
-  }
-
-  /// 从 JSON 恢复 Track
-  Track? _trackFromJson(Map<String, dynamic> json) {
-    try {
-      final durationMs = json['durationMs'] as int?;
-      final kindIndex = json['kind'] as int? ?? 0;
-
-      return Track(
-        id: json['id'] as String?,
-        title: json['title'] as String? ?? '未知曲目',
-        path: json['path'] as String? ?? '',
-        artist: json['artist'] as String?,
-        artUri: json['artUri'] as String?,
-        duration: durationMs != null
-            ? Duration(milliseconds: durationMs)
-            : null,
-        kind: TrackKind.values[kindIndex.clamp(0, TrackKind.values.length - 1)],
-        remoteSource: json['remoteSource'] as String?,
-        remoteTrackId: json['remoteTrackId'] as String?,
-        remoteLyricId: json['remoteLyricId'] as String?,
-        lyricKey: json['lyricKey'] as String?,
-      );
-    } catch (e) {
-      debugPrint('解析 Track 失败: $e');
-      return null;
-    }
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    // 确保 dispose 前立即保存一次
+    _doSavePlaylist();
+    super.dispose();
   }
 }

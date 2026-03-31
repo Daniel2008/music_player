@@ -37,7 +37,7 @@ class _LyricViewState extends State<LyricView> {
   final TextEditingController _searchController = TextEditingController();
 
   // GlobalKeys 用于获取实际渲染尺寸
-  final Map<int, GlobalKey> _lineKeys = {};
+  List<GlobalKey> _lineKeys = [];
 
   @override
   void didChangeDependencies() {
@@ -59,33 +59,15 @@ class _LyricViewState extends State<LyricView> {
   void initState() {
     super.initState();
 
-    // 监听用户的手动滚动 - 更快速响应
+    // 监听用户的手动滚动 — 合并冗余逻辑
     _scrollController.addListener(() {
-      if (!_userInteracting) {
-        _userInteracting = true;
-
-        // 取消之前的定时器
-        _scrollResetTimer?.cancel();
-
-        // 1秒后恢复自动滚动（更短延迟）
-        _scrollResetTimer = Timer(const Duration(seconds: 1), () {
-          if (mounted && _userInteracting) {
-            setState(() {
-              _userInteracting = false;
-            });
-          }
-        });
-      } else {
-        // 用户还在滚动，重置定时器
-        _scrollResetTimer?.cancel();
-        _scrollResetTimer = Timer(const Duration(seconds: 1), () {
-          if (mounted && _userInteracting) {
-            setState(() {
-              _userInteracting = false;
-            });
-          }
-        });
-      }
+      _userInteracting = true;
+      _scrollResetTimer?.cancel();
+      _scrollResetTimer = Timer(const Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() => _userInteracting = false);
+        }
+      });
     });
   }
 
@@ -160,6 +142,12 @@ class _LyricViewState extends State<LyricView> {
       });
     }
 
+    // 安全检查：确保 _lineKeys 与 lines 长度一致
+    // 异步加载歌词时可能出现不匹配，导致 RangeError
+    if (_lineKeys.length != lines.length) {
+      _lineKeys = List.generate(lines.length, (_) => GlobalKey());
+    }
+
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
       child: ListView.builder(
@@ -169,29 +157,35 @@ class _LyricViewState extends State<LyricView> {
         itemBuilder: (context, i) {
           final isActive = i == idx;
 
-          // 为每行创建 GlobalKey
-          if (i >= _lineKeys.length) {
-            _lineKeys[i] = GlobalKey();
-          }
+          // 距离高亮行的距离 → 渐变透明度
+          final distance = idx >= 0 ? (i - idx).abs() : 0;
+          final distanceAlpha = distance <= 1
+              ? 0.8
+              : (0.65 - (distance * 0.08)).clamp(0.2, 0.65);
 
           return Container(
-            key: _lineKeys[i],
+            key: i < _lineKeys.length ? _lineKeys[i] : null,
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
             child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
               style: TextStyle(
-                fontSize: isActive ? 24 : 16,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                fontSize: isActive ? 22 : 15,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
                 color: isActive
                     ? scheme.primary
-                    : scheme.onSurfaceVariant.withValues(alpha: 0.6),
-                height: 1.5,
+                    : scheme.onSurfaceVariant.withValues(alpha: distanceAlpha),
+                height: 1.6,
+                letterSpacing: isActive ? 0.3 : 0,
                 shadows: isActive
                     ? [
                         Shadow(
-                          color: scheme.primary.withValues(alpha: 0.3),
-                          blurRadius: 10,
+                          color: scheme.primary.withValues(alpha: 0.4),
+                          blurRadius: 16,
+                        ),
+                        Shadow(
+                          color: scheme.primary.withValues(alpha: 0.15),
+                          blurRadius: 32,
                         ),
                       ]
                     : [],
@@ -225,9 +219,10 @@ class _LyricViewState extends State<LyricView> {
 
   void _scrollToLine(int idx) {
     if (!_scrollController.hasClients) return;
+    if (idx < 0 || idx >= _lineKeys.length) return;
 
-    final key = idx < _lineKeys.length ? _lineKeys[idx] : null;
-    if (key == null || key.currentContext == null) return;
+    final key = _lineKeys[idx];
+    if (key.currentContext == null) return;
 
     // 使用 EnsureVisible 来精确滚动到当前行
     Scrollable.ensureVisible(
@@ -240,9 +235,10 @@ class _LyricViewState extends State<LyricView> {
 
   void _checkVisibilityAndScroll(int idx) {
     if (!_scrollController.hasClients) return;
+    if (idx < 0 || idx >= _lineKeys.length) return;
 
-    final key = idx < _lineKeys.length ? _lineKeys[idx] : null;
-    if (key == null || key.currentContext == null) return;
+    final key = _lineKeys[idx];
+    if (key.currentContext == null) return;
 
     // 获取当前行的位置信息
     final renderBox = key.currentContext!.findRenderObject() as RenderBox?;
@@ -620,7 +616,7 @@ class _LyricViewState extends State<LyricView> {
           _isLoadingLyric = false;
           _lyricError = null;
           _lastHighlighted = -1;
-          _lineKeys.clear();
+          _lineKeys = [];
         });
       }
       return;
@@ -642,11 +638,7 @@ class _LyricViewState extends State<LyricView> {
               _isLoadingLyric = false;
               _lyricError = null;
               _lastHighlighted = -1;
-              _lineKeys.clear();
-              // 重建 keys
-              for (int i = 0; i < parsed.length; i++) {
-                _lineKeys[i] = GlobalKey();
-              }
+              _lineKeys = List.generate(parsed.length, (_) => GlobalKey());
             });
           }
           return;
@@ -660,7 +652,7 @@ class _LyricViewState extends State<LyricView> {
           _isLoadingLyric = false;
           _lyricError = null;
           _lastHighlighted = -1;
-          _lineKeys.clear();
+          _lineKeys = [];
         });
       }
     } catch (e) {
@@ -670,7 +662,7 @@ class _LyricViewState extends State<LyricView> {
           _isLoadingLyric = false;
           _lyricError = null;
           _lastHighlighted = -1;
-          _lineKeys.clear();
+          _lineKeys = [];
         });
       }
     }

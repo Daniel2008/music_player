@@ -124,16 +124,6 @@ class DownloadProvider extends ChangeNotifier {
     _gdApi = client;
   }
 
-  /// 更新 API 基础 URL
-  void updateApiBaseUrl(String url) {
-    _gdApi.updateBaseUrl(url);
-  }
-
-  /// 更新请求超时时间
-  void updateTimeout(int seconds) {
-    _gdApi.updateTimeoutSeconds(seconds);
-  }
-
   /// 设置默认下载目录
   Future<void> setDefaultDownloadPath(String? path) async {
     _defaultDownloadPath = path;
@@ -282,26 +272,42 @@ class DownloadProvider extends ChangeNotifier {
       task.fileSizeBytes = response.contentLength;
       task.downloadedBytes = 0;
 
-      // 下载文件
-      final bytes = <int>[];
-      await for (final chunk in response.stream) {
-        if (task.status == DownloadStatus.cancelled) {
-          throw Exception('下载已取消');
-        }
-
-        bytes.addAll(chunk);
-        task.downloadedBytes += chunk.length;
-
-        if (task.fileSizeBytes != null && task.fileSizeBytes! > 0) {
-          task.progress = task.downloadedBytes / task.fileSizeBytes!;
-        }
-        notifyListeners();
-      }
-
-      // 保存文件
+      // 流式写入文件，避免将整个文件缓存在内存中
       final file = File(savePath);
       await file.parent.create(recursive: true);
-      await file.writeAsBytes(bytes);
+      final sink = file.openWrite();
+      DateTime lastNotify = DateTime.now();
+
+      try {
+        await for (final chunk in response.stream) {
+          if (task.status == DownloadStatus.cancelled) {
+            await sink.close();
+            // 删除未完成的文件
+            if (await file.exists()) await file.delete();
+            throw Exception('下载已取消');
+          }
+
+          sink.add(chunk);
+          task.downloadedBytes += chunk.length;
+
+          if (task.fileSizeBytes != null && task.fileSizeBytes! > 0) {
+            task.progress = task.downloadedBytes / task.fileSizeBytes!;
+          }
+
+          // 进度通知节流：最多每 200ms 通知一次 UI 更新
+          final now = DateTime.now();
+          if (now.difference(lastNotify).inMilliseconds > 200) {
+            lastNotify = now;
+            notifyListeners();
+          }
+        }
+
+        await sink.flush();
+        await sink.close();
+      } catch (e) {
+        await sink.close();
+        rethrow;
+      }
 
       task.status = DownloadStatus.completed;
       task.progress = 1.0;

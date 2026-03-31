@@ -9,15 +9,10 @@ class SearchProvider extends ChangeNotifier {
   bool isSearching = false;
   String? searchError;
   int _searchSeq = 0;
+  bool _disposed = false;
   
   SearchProvider({GdMusicApiClient? gdApi}) 
     : _gdApi = gdApi ?? GdMusicApiClient();
-
-  /// 更新 API 设置
-  void updateApiSettings({required String baseUrl, required int timeoutSeconds}) {
-    _gdApi.updateBaseUrl(baseUrl);
-    _gdApi.updateTimeoutSeconds(timeoutSeconds);
-  }
 
   Future<void> searchOnline(String keyword, {String source = 'netease'}) async {
     final q = keyword.trim();
@@ -36,14 +31,14 @@ class SearchProvider extends ChangeNotifier {
 
     try {
       final results = await _gdApi.search(keyword: q, source: source);
-      if (seq != _searchSeq) return;
+      if (seq != _searchSeq || _disposed) return;
       searchResults = results;
     } catch (e) {
-      if (seq != _searchSeq) return;
+      if (seq != _searchSeq || _disposed) return;
       searchError = e.toString();
       searchResults = const [];
     } finally {
-      if (seq == _searchSeq) {
+      if (seq == _searchSeq && !_disposed) {
         isSearching = false;
         notifyListeners();
       }
@@ -59,7 +54,7 @@ class SearchProvider extends ChangeNotifier {
   
   @override
   void dispose() {
-    _gdApi.close();
+    _disposed = true;
     super.dispose();
   }
 }

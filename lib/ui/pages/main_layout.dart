@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -103,12 +104,6 @@ class _MainLayoutState extends State<MainLayout>
                   children: [
                     // 侧边导航栏
                     _buildNavigationRail(context, scheme, isDark, isWide),
-                    // 分割线
-                    VerticalDivider(
-                      width: 1,
-                      thickness: 1,
-                      color: scheme.outlineVariant.withValues(alpha: 0.3),
-                    ),
                     // 主内容区域
                     Expanded(
                       child: Column(
@@ -144,77 +139,94 @@ class _MainLayoutState extends State<MainLayout>
           windowManager.maximize();
         }
       },
-      child: Container(
-        height: 36,
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          border: Border(
-            bottom: BorderSide(
-              color: scheme.outlineVariant.withValues(alpha: 0.2),
-              width: 1,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          child: Container(
+            height: 40,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? scheme.surface.withValues(alpha: 0.75)
+                  : scheme.surface.withValues(alpha: 0.85),
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.08),
+                  width: 1,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 14),
+                // 应用图标
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        scheme.primary,
+                        scheme.tertiary,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(7),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.music_note_rounded,
+                    size: 15,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // 应用标题
+                Text(
+                  'Music Player',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface.withValues(alpha: 0.85),
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                // 拖拽区域
+                const Expanded(child: SizedBox()),
+                // 窗口控制按钮
+                _buildWindowButton(
+                  icon: Icons.remove_rounded,
+                  onPressed: () => windowManager.minimize(),
+                  scheme: scheme,
+                ),
+                _buildWindowButton(
+                  icon: Icons.crop_square_rounded,
+                  onPressed: () async {
+                    if (await windowManager.isMaximized()) {
+                      windowManager.unmaximize();
+                    } else {
+                      windowManager.maximize();
+                    }
+                  },
+                  scheme: scheme,
+                ),
+                _buildWindowButton(
+                  icon: Icons.close_rounded,
+                  onPressed: () => windowManager.close(),
+                  scheme: scheme,
+                  isClose: true,
+                ),
+              ],
             ),
           ),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            // 应用图标
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    scheme.primary,
-                    scheme.primary.withValues(alpha: 0.7),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Icon(
-                Icons.music_note_rounded,
-                size: 14,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(width: 10),
-            // 应用标题
-            Text(
-              'Music Player',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: scheme.onSurface,
-              ),
-            ),
-            // 拖拽区域
-            const Expanded(child: SizedBox()),
-            // 窗口控制按钮
-            _buildWindowButton(
-              icon: Icons.remove_rounded,
-              onPressed: () => windowManager.minimize(),
-              scheme: scheme,
-            ),
-            _buildWindowButton(
-              icon: Icons.crop_square_rounded,
-              onPressed: () async {
-                if (await windowManager.isMaximized()) {
-                  windowManager.unmaximize();
-                } else {
-                  windowManager.maximize();
-                }
-              },
-              scheme: scheme,
-            ),
-            _buildWindowButton(
-              icon: Icons.close_rounded,
-              onPressed: () => windowManager.close(),
-              scheme: scheme,
-              isClose: true,
-            ),
-          ],
         ),
       ),
     );
@@ -228,13 +240,13 @@ class _MainLayoutState extends State<MainLayout>
   }) {
     return SizedBox(
       width: 46,
-      height: 36,
+      height: 40,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
           hoverColor: isClose
-              ? Colors.red.withValues(alpha: 0.9)
+              ? const Color(0xFFE81123).withValues(alpha: 0.9)
               : scheme.onSurface.withValues(alpha: 0.08),
           child: Icon(
             icon,
@@ -255,16 +267,19 @@ class _MainLayoutState extends State<MainLayout>
     final theme = context.watch<ThemeProvider>();
 
     return Container(
-      width: isWide ? 88 : 72,
+      width: isWide ? 84 : 68,
       decoration: BoxDecoration(
-        color: scheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(2, 0),
+        color: isDark
+            ? const Color(0xFF12121A)
+            : scheme.surfaceContainerLow,
+        border: Border(
+          right: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.04)
+                : Colors.black.withValues(alpha: 0.06),
+            width: 1,
           ),
-        ],
+        ),
       ),
       child: Column(
         children: [
@@ -272,11 +287,11 @@ class _MainLayoutState extends State<MainLayout>
           // 导航项
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Column(
                 children: [
                   for (int i = 0; i < _navItems.length; i++) ...[
-                    _buildNavItem(context, i, scheme),
+                    _buildNavItem(context, i, scheme, isDark),
                     if (i < _navItems.length - 1) const SizedBox(height: 4),
                   ],
                 ],
@@ -285,13 +300,13 @@ class _MainLayoutState extends State<MainLayout>
           ),
           // 底部操作区域
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 // 主题切换按钮
                 _buildThemeToggle(context, theme, isDark, scheme),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ],
             ),
           ),
@@ -300,13 +315,18 @@ class _MainLayoutState extends State<MainLayout>
     );
   }
 
-  Widget _buildNavItem(BuildContext context, int index, ColorScheme scheme) {
+  Widget _buildNavItem(
+    BuildContext context,
+    int index,
+    ColorScheme scheme,
+    bool isDark,
+  ) {
     final item = _navItems[index];
     final isSelected = _selectedIndex == index;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: isSelected ? 1.0 : 0.0),
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 250),
       curve: Curves.easeOutCubic,
       builder: (context, value, child) {
         return Material(
@@ -314,41 +334,71 @@ class _MainLayoutState extends State<MainLayout>
           child: InkWell(
             onTap: () => _onDestinationSelected(index),
             borderRadius: BorderRadius.circular(16),
+            hoverColor: scheme.primary.withValues(alpha: 0.06),
+            splashColor: scheme.primary.withValues(alpha: 0.1),
             child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
               decoration: BoxDecoration(
-                color: Color.lerp(
-                  Colors.transparent,
-                  scheme.primaryContainer,
-                  value,
-                ),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    isSelected ? item.selectedIcon : item.icon,
-                    color: Color.lerp(
-                      scheme.onSurfaceVariant,
-                      scheme.onPrimaryContainer,
-                      value,
-                    ),
-                    size: 24,
+                  // 药丸形选中指示器
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeOutCubic,
+                        width: isSelected ? 48 : 0,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: scheme.primaryContainer.withValues(
+                            alpha: value * 0.9,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      // 图标带轻微弹跳缩放
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(
+                          begin: 1.0,
+                          end: isSelected ? 1.1 : 1.0,
+                        ),
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOutBack,
+                        builder: (context, scale, child) {
+                          return Transform.scale(
+                            scale: scale,
+                            child: child,
+                          );
+                        },
+                        child: Icon(
+                          isSelected ? item.selectedIcon : item.icon,
+                          color: Color.lerp(
+                            scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            scheme.primary,
+                            value,
+                          ),
+                          size: 22,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
                     item.label,
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.normal,
+                      fontSize: 10,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.w500,
                       color: Color.lerp(
-                        scheme.onSurfaceVariant,
+                        scheme.onSurfaceVariant.withValues(alpha: 0.6),
                         scheme.onSurface,
                         value,
                       ),
+                      letterSpacing: 0.2,
                     ),
                   ),
                 ],
@@ -373,11 +423,19 @@ class _MainLayoutState extends State<MainLayout>
         child: InkWell(
           onTap: () => theme.setMode(isDark ? ThemeMode.light : ThemeMode.dark),
           borderRadius: BorderRadius.circular(12),
+          hoverColor: scheme.primary.withValues(alpha: 0.08),
           child: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.black.withValues(alpha: 0.06),
+              ),
             ),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
@@ -390,7 +448,7 @@ class _MainLayoutState extends State<MainLayout>
               child: Icon(
                 isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
                 key: ValueKey(isDark),
-                size: 20,
+                size: 18,
                 color: scheme.onSurfaceVariant,
               ),
             ),

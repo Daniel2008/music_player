@@ -364,27 +364,40 @@ class GdMusicApiClient {
     };
   }
 
-  Future<dynamic> _getJson(Uri uri) async {
-    http.Response resp;
-    try {
-      resp = await _client.get(uri).timeout(_timeout);
-    } on TimeoutException {
-      throw GdMusicApiTimeout(uri: uri);
-    } on http.ClientException catch (e) {
-      throw GdMusicApiException(e.message, uri: uri);
-    }
+  Future<dynamic> _getJson(Uri uri, {int maxRetries = 2}) async {
+    int attempt = 0;
+    while (true) {
+      try {
+        http.Response resp;
+        try {
+          resp = await _client.get(uri).timeout(_timeout);
+        } on TimeoutException {
+          throw GdMusicApiTimeout(uri: uri);
+        } on http.ClientException catch (e) {
+          throw GdMusicApiException(e.message, uri: uri);
+        }
 
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw GdMusicApiHttpException(statusCode: resp.statusCode, uri: uri);
-    }
+        if (resp.statusCode < 200 || resp.statusCode >= 300) {
+          throw GdMusicApiHttpException(statusCode: resp.statusCode, uri: uri);
+        }
 
-    final body = resp.body.trim();
-    try {
-      return jsonDecode(body);
-    } catch (_) {
-      throw FormatException(
-        'Response is not JSON: ${body.substring(0, body.length > 200 ? 200 : body.length)}',
-      );
+        final body = resp.body.trim();
+        try {
+          return jsonDecode(body);
+        } catch (_) {
+          // 格式解析错误不重试（服务器返回了非 JSON，重试也没用）
+          throw FormatException(
+            'Response is not JSON: ${body.substring(0, body.length > 200 ? 200 : body.length)}',
+          );
+        }
+      } on FormatException {
+        rethrow; // 格式错误直接抛出
+      } catch (e) {
+        attempt++;
+        if (attempt > maxRetries) rethrow;
+        // 指数退避：第1次等 500ms，第2次等 1000ms
+        await Future.delayed(Duration(milliseconds: 500 * attempt));
+      }
     }
   }
 

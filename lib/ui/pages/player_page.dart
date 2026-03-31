@@ -17,22 +17,28 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   // 当前选择的频谱样式
   VisualizerStyle _visualizerStyle = VisualizerStyle.bars;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 900;
         final scheme = Theme.of(context).colorScheme;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
 
         if (isWide) {
-          return _buildWideLayout(context, scheme);
+          return _buildWideLayout(context, scheme, isDark);
         }
-        return _buildNarrowLayout(context, scheme);
+        return _buildNarrowLayout(context, scheme, isDark);
       },
     );
   }
 
-  Widget _buildWideLayout(BuildContext context, ColorScheme scheme) {
+  Widget _buildWideLayout(
+    BuildContext context,
+    ColorScheme scheme,
+    bool isDark,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -40,14 +46,20 @@ class _PlayerPageState extends State<PlayerPage> {
         Expanded(
           flex: 3,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 12, 24),
+            padding: const EdgeInsets.fromLTRB(20, 20, 10, 20),
             child: Column(
               children: [
-                // 频谱卡片 - 占 2/3
-                Expanded(flex: 2, child: _buildVisualizerCard(context, scheme)),
-                const SizedBox(height: 16),
-                // 歌词卡片 - 占 1/3
-                Expanded(flex: 1, child: _buildLyricsCard(context, scheme)),
+                // 频谱卡片 — 主焦点
+                Expanded(
+                  flex: 3,
+                  child: _buildVisualizerCard(context, scheme, isDark),
+                ),
+                const SizedBox(height: 12),
+                // 歌词卡片
+                Expanded(
+                  flex: 2,
+                  child: _buildLyricsCard(context, scheme, isDark),
+                ),
               ],
             ),
           ),
@@ -56,165 +68,295 @@ class _PlayerPageState extends State<PlayerPage> {
         Expanded(
           flex: 2,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 24, 24, 24),
-            child: _buildPlaylistCard(context, scheme),
+            padding: const EdgeInsets.fromLTRB(10, 20, 20, 20),
+            child: _buildPlaylistCard(context, scheme, isDark),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildNarrowLayout(BuildContext context, ColorScheme scheme) {
+  Widget _buildNarrowLayout(
+    BuildContext context,
+    ColorScheme scheme,
+    bool isDark,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 频谱 - 占更大比例
-          SizedBox(height: 240, child: _buildVisualizerCard(context, scheme)),
-          const SizedBox(height: 16),
-          // 歌词 - 占较小比例
-          SizedBox(height: 120, child: _buildLyricsCard(context, scheme)),
-          const SizedBox(height: 16),
+          // 频谱 — 主焦点
+          SizedBox(
+            height: 260,
+            child: _buildVisualizerCard(context, scheme, isDark),
+          ),
+          const SizedBox(height: 12),
+          // 歌词
+          SizedBox(
+            height: 220,
+            child: _buildLyricsCard(context, scheme, isDark),
+          ),
+          const SizedBox(height: 12),
           // 播放列表
-          SizedBox(height: 400, child: _buildPlaylistCard(context, scheme)),
+          SizedBox(
+            height: 400,
+            child: _buildPlaylistCard(context, scheme, isDark),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildVisualizerCard(BuildContext context, ColorScheme scheme) {
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainer,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+  /// 带发光边框的容器
+  Widget _buildGlowCard({
+    required Widget child,
+    required ColorScheme scheme,
+    required bool isDark,
+    bool isMain = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        // 微光边框（暗色模式下更明显）
+        border: isDark
+            ? Border.all(
+                color: isMain
+                    ? scheme.primary.withValues(alpha: 0.15)
+                    : Colors.white.withValues(alpha: 0.06),
+                width: 1,
+              )
+            : Border.all(
+                color: Colors.black.withValues(alpha: 0.06),
+                width: 1,
+              ),
+        color: isDark ? const Color(0xFF16161F) : scheme.surfaceContainer,
+        boxShadow: [
+          if (isDark && isMain)
+            BoxShadow(
+              color: scheme.primary.withValues(alpha: 0.06),
+              blurRadius: 30,
+              spreadRadius: -4,
+            ),
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.3)
+                : Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildVisualizerCard(
+    BuildContext context,
+    ColorScheme scheme,
+    bool isDark,
+  ) {
+    return _buildGlowCard(
+      scheme: scheme,
+      isDark: isDark,
+      isMain: true,
       child: Stack(
         children: [
-          // 频谱视图，使用外部管理的样式
+          // 频谱视图
           Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16),
             child: VisualizerView(
               showStyleSelector: false,
               fixedStyle: _visualizerStyle,
             ),
           ),
-          // 全屏按钮 - 放在左上角
+          // 全屏按钮 — 左上角
           Positioned(
             top: 8,
             left: 8,
-            child: Material(
-              color: Colors.transparent,
-              child: IconButton(
-                icon: Icon(
-                  Icons.fullscreen_rounded,
-                  color: scheme.onSurfaceVariant,
-                ),
-                tooltip: '全屏显示频谱',
-                onPressed: () {
-                  final playerProvider = context.read<PlayerProvider>();
-                  final playlistProvider = context.read<PlaylistProvider>();
-                  Navigator.of(context).push(
-                    PageRouteBuilder(
-                      pageBuilder: (context, animation, secondaryAnimation) =>
-                          MultiProvider(
-                            providers: [
-                              ChangeNotifierProvider.value(
-                                value: playerProvider,
-                              ),
-                              ChangeNotifierProvider.value(
-                                value: playlistProvider,
-                              ),
-                            ],
-                            child: const VisualizerFullscreenPage(),
-                          ),
-                      transitionsBuilder:
-                          (context, animation, secondaryAnimation, child) {
-                            return FadeTransition(
-                              opacity: animation,
-                              child: child,
-                            );
-                          },
-                      transitionDuration: const Duration(milliseconds: 300),
-                    ),
-                  );
-                },
-              ),
+            child: _buildIconAction(
+              icon: Icons.fullscreen_rounded,
+              tooltip: '全屏显示频谱',
+              scheme: scheme,
+              isDark: isDark,
+              onPressed: () {
+                final playerProvider = context.read<PlayerProvider>();
+                final playlistProvider = context.read<PlaylistProvider>();
+                Navigator.of(context).push(
+                  PageRouteBuilder(
+                    pageBuilder: (context, animation, secondaryAnimation) =>
+                        MultiProvider(
+                          providers: [
+                            ChangeNotifierProvider.value(
+                              value: playerProvider,
+                            ),
+                            ChangeNotifierProvider.value(
+                              value: playlistProvider,
+                            ),
+                          ],
+                          child: const VisualizerFullscreenPage(),
+                        ),
+                    transitionsBuilder:
+                        (context, animation, secondaryAnimation, child) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          );
+                        },
+                    transitionDuration: const Duration(milliseconds: 300),
+                  ),
+                );
+              },
             ),
           ),
-          // 效果选择按钮 - 放在右上角
+          // 效果选择 — 右上角
           Positioned(
             top: 8,
             right: 8,
-            child: Material(
-              color: Colors.transparent,
-              child: PopupMenuButton<VisualizerStyle>(
-                tooltip: '频谱样式',
-                initialValue: _visualizerStyle,
-                icon: Icon(
-                  _visualizerStyle.icon,
-                  color: scheme.onSurfaceVariant,
-                ),
-                onSelected: (v) {
-                  setState(() => _visualizerStyle = v);
-                },
-                itemBuilder: (context) => VisualizerStyle.values
-                    .map(
-                      (style) => PopupMenuItem(
-                        value: style,
-                        child: Row(
-                          children: [
-                            Icon(
-                              style.icon,
-                              size: 18,
-                              color: style == _visualizerStyle
-                                  ? scheme.primary
-                                  : null,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              style.displayName,
-                              style: TextStyle(
-                                color: style == _visualizerStyle
-                                    ? scheme.primary
-                                    : null,
-                                fontWeight: style == _visualizerStyle
-                                    ? FontWeight.bold
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
+            child: _buildStyleSelector(scheme, isDark),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLyricsCard(BuildContext context, ColorScheme scheme) {
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainer,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+  Widget _buildIconAction({
+    required IconData icon,
+    required String tooltip,
+    required ColorScheme scheme,
+    required bool isDark,
+    required VoidCallback onPressed,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.3)
+                  : Colors.white.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06),
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStyleSelector(ColorScheme scheme, bool isDark) {
+    return Material(
+      color: Colors.transparent,
+      child: PopupMenuButton<VisualizerStyle>(
+        tooltip: '频谱样式',
+        initialValue: _visualizerStyle,
+        icon: Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.3)
+                : Colors.white.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06),
+            ),
+          ),
+          child: Icon(
+            _visualizerStyle.icon,
+            size: 18,
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+          ),
+        ),
+        onSelected: (v) {
+          setState(() => _visualizerStyle = v);
+        },
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        itemBuilder: (context) => VisualizerStyle.values
+            .map(
+              (style) => PopupMenuItem(
+                value: style,
+                child: Row(
+                  children: [
+                    Icon(
+                      style.icon,
+                      size: 18,
+                      color:
+                          style == _visualizerStyle ? scheme.primary : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      style.displayName,
+                      style: TextStyle(
+                        color: style == _visualizerStyle
+                            ? scheme.primary
+                            : null,
+                        fontWeight: style == _visualizerStyle
+                            ? FontWeight.bold
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildLyricsCard(
+    BuildContext context,
+    ColorScheme scheme,
+    bool isDark,
+  ) {
+    return _buildGlowCard(
+      scheme: scheme,
+      isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
             child: Row(
               children: [
-                Icon(Icons.lyrics_outlined, size: 20, color: scheme.primary),
-                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.lyrics_outlined,
+                    size: 16,
+                    color: scheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Text(
                   '歌词',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
                   ),
                 ),
               ],
@@ -231,29 +373,40 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _buildPlaylistCard(BuildContext context, ColorScheme scheme) {
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainer,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+  Widget _buildPlaylistCard(
+    BuildContext context,
+    ColorScheme scheme,
+    bool isDark,
+  ) {
+    return _buildGlowCard(
+      scheme: scheme,
+      isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
             child: Row(
               children: [
-                Icon(
-                  Icons.queue_music_rounded,
-                  size: 20,
-                  color: scheme.primary,
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.queue_music_rounded,
+                    size: 16,
+                    color: scheme.primary,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Text(
                   '播放列表',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
                   ),
                 ),
               ],

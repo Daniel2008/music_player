@@ -393,8 +393,9 @@ class _VisualizerViewState extends State<VisualizerView>
                     size: Size.infinite,
                     painter: _SpectrumPainter(
                       repaint: _controller,
-                      levels: _levels.take(_currentBarCount).toList(),
-                      peaks: _peaks.take(_currentBarCount).toList(),
+                      levels: _levels,
+                      peaks: _peaks,
+                      barCount: _currentBarCount,
                       style: currentStyle,
                       color: scheme.primary,
                       secondaryColor: scheme.secondary,
@@ -465,6 +466,7 @@ class _SpectrumPainter extends CustomPainter {
   final Listenable repaint;
   final List<double> levels;
   final List<double> peaks;
+  final int barCount;
   final VisualizerStyle style;
   final Color color;
   final Color secondaryColor;
@@ -483,6 +485,7 @@ class _SpectrumPainter extends CustomPainter {
     required this.repaint,
     required this.levels,
     required this.peaks,
+    required this.barCount,
     required this.style,
     required this.color,
     required this.secondaryColor,
@@ -496,7 +499,7 @@ class _SpectrumPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (levels.isEmpty || size.width <= 0 || size.height <= 0) return;
+    if (barCount <= 0 || size.width <= 0 || size.height <= 0) return;
 
     // 重新设置画笔属性（不使用 reset，因为 Paint 没有 reset 方法）
     _paint
@@ -550,7 +553,7 @@ class _SpectrumPainter extends CustomPainter {
   }
 
   void _paintBars(Canvas canvas, Size size, bool mirrored) {
-    final n = levels.length;
+    final n = barCount;
     if (n == 0) return;
 
     const gap = 2.0;
@@ -628,7 +631,7 @@ class _SpectrumPainter extends CustomPainter {
   }
 
   void _paintLine(Canvas canvas, Size size) {
-    final n = levels.length;
+    final n = barCount;
     if (n < 2) return;
 
     final dx = size.width / (n - 1);
@@ -659,7 +662,7 @@ class _SpectrumPainter extends CustomPainter {
   }
 
   void _paintDots(Canvas canvas, Size size) {
-    final n = levels.length;
+    final n = barCount;
     if (n == 0) return;
 
     const gapX = 2.0;
@@ -699,7 +702,7 @@ class _SpectrumPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final baseRadius = math.min(size.width, size.height) * 0.25;
     final maxExtension = math.min(size.width, size.height) * 0.35; // 限制最大扩展
-    final n = levels.length;
+    final n = barCount;
 
     // 基础圆圈
     _paint.style = PaintingStyle.stroke;
@@ -742,7 +745,7 @@ class _SpectrumPainter extends CustomPainter {
   }
 
   void _paintWave(Canvas canvas, Size size) {
-    final n = levels.length;
+    final n = barCount;
     if (n < 2) return;
 
     final dx = size.width / (n - 1);
@@ -803,7 +806,7 @@ class _SpectrumPainter extends CustomPainter {
 
   void _paintParticles(Canvas canvas, Size size) {
     // 背景柱
-    final n = levels.length;
+    final n = barCount;
     const gap = 3.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 20.0);
 
@@ -854,7 +857,7 @@ class _SpectrumPainter extends CustomPainter {
   }
 
   void _paintFlame(Canvas canvas, Size size) {
-    final n = levels.length;
+    final n = barCount;
     const gap = 2.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(3.0, 18.0);
 
@@ -907,7 +910,7 @@ class _SpectrumPainter extends CustomPainter {
   void _paintRadar(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final maxRadius = math.min(size.width, size.height) * 0.45;
-    final n = levels.length;
+    final n = barCount;
 
     // 网格
     _paint.style = PaintingStyle.stroke;
@@ -969,7 +972,7 @@ class _SpectrumPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final baseRadius = math.min(size.width, size.height) * 0.18;
     final maxExtension = math.min(size.width, size.height) * 0.25; // 限制扩展距离
-    final n = levels.length;
+    final n = barCount;
 
     // 多层环
     for (var layer = 0; layer < 3; layer++) {
@@ -1019,7 +1022,8 @@ class _SpectrumPainter extends CustomPainter {
   }
 
   void _paintGradientBars(Canvas canvas, Size size) {
-    final n = levels.length;
+    final n = barCount;
+    if (n == 0) return;
     const gap = 2.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 24.0);
     final radius = barWidth / 2;
@@ -1085,7 +1089,8 @@ class _SpectrumPainter extends CustomPainter {
   void _paintSpectrum3D(Canvas canvas, Size size) {
     if (history.isEmpty) return;
 
-    final n = levels.length;
+    final n = barCount;
+    if (n == 0) return;
     final layerCount = history.length;
     const gap = 2.0;
     final barWidth = ((size.width - gap * (n - 1)) / n).clamp(2.0, 16.0);
@@ -1149,20 +1154,11 @@ class _SpectrumPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SpectrumPainter oldDelegate) {
-    // 优化：更精确的重绘判断
-    if (oldDelegate.style != style) return true;
-    if (oldDelegate.color != color) return true;
-    if (oldDelegate.faintColor != faintColor) return true;
-    if (oldDelegate.enableGlow != enableGlow) return true;
-
-    // 检查数据是否有显著变化
-    if (levels.length != oldDelegate.levels.length) return true;
-
-    // 简单的数据差异检查
-    for (var i = 0; i < levels.length && i < oldDelegate.levels.length; i++) {
-      if ((levels[i] - oldDelegate.levels[i]).abs() > 0.01) return true;
-    }
-
-    return false;
+    // repaint Listenable (AnimationController) 已控制重绘频率
+    // 仅在配置项变化时强制重绘
+    return oldDelegate.style != style ||
+        oldDelegate.color != color ||
+        oldDelegate.enableGlow != enableGlow ||
+        barCount != oldDelegate.barCount;
   }
 }

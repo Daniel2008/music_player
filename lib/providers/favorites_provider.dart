@@ -7,6 +7,7 @@ import '../services/gd_music_api.dart';
 
 class FavoritesProvider extends ChangeNotifier {
   final List<GdSearchTrack> _favorites = [];
+  final Set<String> _favoriteIds = {}; // 用 Set 索引加速 isFavorite 查询
   final String _favoritesFileName = 'favorites.json';
 
   List<GdSearchTrack> get favorites => _favorites;
@@ -27,9 +28,12 @@ class FavoritesProvider extends ChangeNotifier {
         final contents = await file.readAsString();
         final List<dynamic> jsonData = jsonDecode(contents);
         _favorites.clear();
-        _favorites.addAll(
-          jsonData.map((item) => GdSearchTrack.fromJson(item)).toList(),
-        );
+        _favoriteIds.clear();
+        for (final item in jsonData) {
+          final track = GdSearchTrack.fromJson(item);
+          _favorites.add(track);
+          _favoriteIds.add(track.id);
+        }
         notifyListeners();
       }
     } catch (e) {
@@ -48,17 +52,19 @@ class FavoritesProvider extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(GdSearchTrack track) async {
-    final index = _favorites.indexWhere((t) => t.id == track.id);
-    if (index >= 0) {
-      _favorites.removeAt(index);
+    if (_favoriteIds.contains(track.id)) {
+      _favorites.removeWhere((t) => t.id == track.id);
+      _favoriteIds.remove(track.id);
     } else {
       _favorites.add(track);
+      _favoriteIds.add(track.id);
     }
     notifyListeners();
     await _saveFavorites();
   }
 
+  /// O(1) 查询，代替原来的 O(n) 线性搜索
   bool isFavorite(GdSearchTrack track) {
-    return _favorites.any((t) => t.id == track.id);
+    return _favoriteIds.contains(track.id);
   }
 }

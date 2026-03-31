@@ -9,7 +9,7 @@ import 'playlist_provider.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final SoLoud _soloud = SoLoud.instance;
-  final GdMusicApiClient _gdApi = GdMusicApiClient();
+  GdMusicApiClient _gdApi;
 
   AudioSource? _currentSource;
   SoundHandle? _currentHandle;
@@ -53,8 +53,14 @@ class PlayerProvider extends ChangeNotifier {
   // 是否已初始化
   bool _initialized = false;
 
-  PlayerProvider() {
+  PlayerProvider({GdMusicApiClient? gdApi})
+      : _gdApi = gdApi ?? GdMusicApiClient() {
     _init();
+  }
+
+  /// 更新共享 API 客户端引用（由 ProxyProvider 调用）
+  void updateApiClient(GdMusicApiClient client) {
+    _gdApi = client;
   }
 
   Future<void> _init() async {
@@ -151,12 +157,16 @@ class PlayerProvider extends ChangeNotifier {
           }
 
           final pos = _soloud.getPosition(_currentHandle!);
+          final posChanged = (pos - position).abs() > const Duration(milliseconds: 30);
           position = pos;
 
-          // 更新 FFT 数据
+          // 更新 FFT 数据（不触发 notifyListeners，频谱视图自行读取）
           _updateAudioData();
 
-          notifyListeners();
+          // 仅在位置有明显变化时通知（避免过于频繁的全局重建）
+          if (posChanged) {
+            notifyListeners();
+          }
         } catch (e) {
           // 忽略错误
         }
@@ -506,7 +516,8 @@ class PlayerProvider extends ChangeNotifier {
   void dispose() {
     _positionTimer?.cancel();
     _audioData?.dispose();
-    _gdApi.close();
+    // 注意：_gdApi 是共享实例，由 app.dart 中的 Provider<GdMusicApiClient> 统一管理
+    // 不在此处 close，避免其他 Provider（Search/Download）请求失败
     if (_currentSource != null) {
       _soloud.disposeSource(_currentSource!);
     }

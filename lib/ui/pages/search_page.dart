@@ -197,54 +197,125 @@ class _SearchPageState extends State<SearchPage> {
         // 搜索结果
         Expanded(
           child: searchProvider.searchError != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.error_outline, size: 48, color: scheme.error),
-                      const SizedBox(height: 12),
-                      Text(
-                        searchProvider.searchError!,
-                        style: TextStyle(color: scheme.error),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.tonal(
-                        onPressed: () => _search(searchProvider),
-                        child: const Text('重试'),
-                      ),
-                    ],
-                  ),
-                )
+              ? _buildErrorState(scheme, searchProvider)
+              : searchProvider.isSearching
+              ? _buildShimmerLoading(scheme)
               : searchProvider.searchResults.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.music_note_outlined,
-                        size: 64,
-                        color: scheme.outline.withValues(alpha: 0.5),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '输入关键词搜索音乐',
-                        style: TextStyle(color: scheme.outline, fontSize: 16),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '支持多个音乐平台',
-                        style: TextStyle(color: scheme.outline, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                )
+              ? _buildEmptyState(scheme)
               : _SearchResultList(
                   items: searchProvider.searchResults,
                   quality: currentQuality,
                 ),
         ),
       ],
+    );
+  }
+
+  /// 骨架屏加载动画
+  Widget _buildShimmerLoading(ColorScheme scheme) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: 8,
+      itemBuilder: (context, index) {
+        return _ShimmerItem(index: index, scheme: scheme);
+      },
+    );
+  }
+
+  /// 空状态
+  Widget _buildEmptyState(ColorScheme scheme) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  scheme.primaryContainer.withValues(alpha: 0.5),
+                  scheme.tertiaryContainer.withValues(alpha: 0.3),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Icon(
+              Icons.search_rounded,
+              size: 36,
+              color: scheme.primary.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '搜索在线音乐',
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '输入歌名、歌手或专辑名称',
+            style: TextStyle(
+              color: scheme.outline.withValues(alpha: 0.6),
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 错误状态
+  Widget _buildErrorState(ColorScheme scheme, SearchProvider searchProvider) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: scheme.errorContainer.withValues(alpha: 0.3),
+            ),
+            child: Icon(
+              Icons.wifi_off_rounded,
+              size: 28,
+              color: scheme.error.withValues(alpha: 0.8),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '搜索失败',
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: 280,
+            child: Text(
+              searchProvider.searchError!,
+              style: TextStyle(color: scheme.outline, fontSize: 13),
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonal(
+            onPressed: () => _search(searchProvider),
+            child: const Text('重试'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -473,41 +544,8 @@ class _SearchResultItem extends StatelessWidget {
     PlaylistProvider playlistProvider,
     GdSearchTrack item,
   ) async {
-    // 创建 Track 对象并添加到播放列表
-    final displayArtist = item.artistText;
-    final title = displayArtist.isEmpty
-        ? item.name
-        : '${item.name} - $displayArtist';
-
-    final trackId = Track.generateRemoteId(item.source, item.id);
-
-    // 检查是否已存在于播放列表中
-    final existingIndex = playlistProvider.playlist.tracks.indexWhere(
-      (t) => t.id == trackId,
-    );
-
-    if (existingIndex >= 0) {
-      // 已存在，直接切换到该曲目
-      playlistProvider.setCurrentIndex(existingIndex);
-    } else {
-      // 不存在，创建新的 Track 并添加
-      final newTrack = Track(
-        id: trackId,
-        title: title,
-        path: '', // 路径会在 resolveAndPlayTrackUrl 中解析
-        artist: displayArtist.isEmpty ? null : displayArtist,
-        kind: TrackKind.remote,
-        remoteSource: item.source,
-        remoteTrackId: item.id,
-        remoteLyricId: item.lyricId ?? item.id,
-        lyricKey: 'gd_${item.source}_${item.lyricId ?? item.id}',
-      );
-
-      playlistProvider.addTrack(newTrack);
-      playlistProvider.setCurrentIndex(
-        playlistProvider.playlist.tracks.length - 1,
-      );
-    }
+    final track = Track.fromGdSearchTrack(item);
+    playlistProvider.addOrSelectTrack(track);
 
     final ok = await playerProvider.resolveAndPlayTrackUrl(
       item,
@@ -569,5 +607,98 @@ class _SearchResultItem extends StatelessWidget {
           ),
         );
     }
+  }
+}
+
+/// 骨架屏动画条目
+class _ShimmerItem extends StatefulWidget {
+  final int index;
+  final ColorScheme scheme;
+
+  const _ShimmerItem({required this.index, required this.scheme});
+
+  @override
+  State<_ShimmerItem> createState() => _ShimmerItemState();
+}
+
+class _ShimmerItemState extends State<_ShimmerItem>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    // Stagger the animation start
+    Future.delayed(Duration(milliseconds: widget.index * 80), () {
+      if (mounted) _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Opacity(
+          opacity: 0.3 + 0.5 * _controller.value,
+          child: child,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 140.0 + widget.index * 10,
+                    height: 13,
+                    decoration: BoxDecoration(
+                      color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 90,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

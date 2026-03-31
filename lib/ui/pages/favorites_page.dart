@@ -165,10 +165,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
     // 清空当前播放列表
     playlistProvider.clear();
 
-    // 将所有收藏添加到播放列表（先添加占位 Track）
+    // 将所有收藏添加到播放列表
     for (final item in favorites) {
-      final track = _createTrackFromGdSearchTrack(item);
-      playlistProvider.addTrack(track);
+      playlistProvider.addTrack(Track.fromGdSearchTrack(item));
     }
 
     // 设置当前播放索引为第一首
@@ -189,25 +188,6 @@ class _FavoritesPageState extends State<FavoritesPage> {
           SnackBar(content: Text(playerProvider.playError ?? '播放失败')),
         );
     }
-  }
-
-  Track _createTrackFromGdSearchTrack(GdSearchTrack item) {
-    final displayArtist = item.artistText;
-    final title = displayArtist.isEmpty
-        ? item.name
-        : '${item.name} - $displayArtist';
-
-    return Track(
-      id: Track.generateRemoteId(item.source, item.id), // 使用确定性 ID
-      title: title,
-      path: '', // 路径稍后解析
-      artist: displayArtist.isEmpty ? null : displayArtist,
-      kind: TrackKind.remote,
-      remoteSource: item.source,
-      remoteTrackId: item.id,
-      remoteLyricId: item.lyricId ?? item.id,
-      lyricKey: 'gd_${item.source}_${item.lyricId ?? item.id}',
-    );
   }
 }
 
@@ -276,41 +256,8 @@ class _FavoriteItem extends StatelessWidget {
     PlayerProvider playerProvider,
     PlaylistProvider playlistProvider,
   ) async {
-    // 创建 Track 对象并添加到播放列表
-    final displayArtist = track.artistText;
-    final title = displayArtist.isEmpty
-        ? track.name
-        : '${track.name} - $displayArtist';
-
-    final trackId = Track.generateRemoteId(track.source, track.id);
-
-    // 检查是否已存在于播放列表中
-    final existingIndex = playlistProvider.playlist.tracks.indexWhere(
-      (t) => t.id == trackId,
-    );
-
-    if (existingIndex >= 0) {
-      // 已存在，直接切换到该曲目
-      playlistProvider.setCurrentIndex(existingIndex);
-    } else {
-      // 不存在，创建新的 Track 并添加
-      final newTrack = Track(
-        id: trackId,
-        title: title,
-        path: '', // 路径会在 resolveAndPlayTrackUrl 中解析
-        artist: displayArtist.isEmpty ? null : displayArtist,
-        kind: TrackKind.remote,
-        remoteSource: track.source,
-        remoteTrackId: track.id,
-        remoteLyricId: track.lyricId ?? track.id,
-        lyricKey: 'gd_${track.source}_${track.lyricId ?? track.id}',
-      );
-
-      playlistProvider.addTrack(newTrack);
-      playlistProvider.setCurrentIndex(
-        playlistProvider.playlist.tracks.length - 1,
-      );
-    }
+    final newTrack = Track.fromGdSearchTrack(track);
+    playlistProvider.addOrSelectTrack(newTrack);
 
     // 解析并播放
     final ok = await playerProvider.resolveAndPlayTrackUrl(

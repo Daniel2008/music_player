@@ -34,16 +34,6 @@ class _MiniPlayerState extends State<MiniPlayer>
     super.dispose();
   }
 
-  void _updateRotation(bool isPlaying) {
-    if (isPlaying) {
-      if (!_rotationController.isAnimating) {
-        _rotationController.repeat();
-      }
-    } else {
-      _rotationController.stop();
-    }
-  }
-
   String _fmt(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
     final h = d.inHours;
@@ -83,6 +73,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     final playerProvider = context.watch<PlayerProvider>();
     final playlistProvider = context.watch<PlaylistProvider>();
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // 安全获取当前曲目，防止索引越界
     final track =
@@ -91,42 +82,62 @@ class _MiniPlayerState extends State<MiniPlayer>
         ? playlistProvider.current
         : null;
 
+    // 空状态折叠
+    if (track == null && !playerProvider.isPlaying) {
+      return _buildEmptyState(context, scheme, isDark, playlistProvider);
+    }
+
     final pos = playerProvider.position.inMilliseconds;
     final dur = max(1, playerProvider.duration.inMilliseconds);
     final progress = (pos / dur).clamp(0.0, 1.0);
     final sliderValue = _dragValue ?? progress;
 
-    // 更新旋转动画状态
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateRotation(playerProvider.isPlaying);
-    });
+    // 直接同步旋转动画
+    if (playerProvider.isPlaying && !_rotationController.isAnimating) {
+      _rotationController.repeat();
+    } else if (!playerProvider.isPlaying && _rotationController.isAnimating) {
+      _rotationController.stop();
+    }
 
     return Container(
-      margin: const EdgeInsets.all(12),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(22),
+        color: isDark ? const Color(0xFF1A1A26) : scheme.surfaceContainerHigh,
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.06),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.4)
+                : Colors.black.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, -2),
           ),
+          if (isDark)
+            BoxShadow(
+              color: scheme.primary.withValues(alpha: 0.04),
+              blurRadius: 40,
+              offset: const Offset(0, -4),
+            ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 可拖动的进度条
-          _buildProgressSlider(context, playerProvider, sliderValue, scheme),
+          // 渐变进度条
+          _buildGradientProgress(context, playerProvider, sliderValue, scheme),
           // 主内容区域
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
             child: Row(
               children: [
                 // 专辑封面（旋转）
                 _buildRotatingAlbumArt(track, playerProvider.isPlaying, scheme),
-                const SizedBox(width: 16),
+                const SizedBox(width: 14),
                 // 曲目信息
                 Expanded(
                   flex: 2,
@@ -145,23 +156,83 @@ class _MiniPlayerState extends State<MiniPlayer>
     );
   }
 
-  Widget _buildProgressSlider(
+  /// 空状态 — 折叠成引导行
+  Widget _buildEmptyState(
+    BuildContext context,
+    ColorScheme scheme,
+    bool isDark,
+    PlaylistProvider playlistProvider,
+  ) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: isDark
+            ? const Color(0xFF1A1A26).withValues(alpha: 0.7)
+            : scheme.surfaceContainerHigh.withValues(alpha: 0.7),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.04)
+              : Colors.black.withValues(alpha: 0.04),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: scheme.primaryContainer.withValues(alpha: 0.5),
+            ),
+            child: Icon(
+              Icons.music_note_rounded,
+              size: 16,
+              color: scheme.primary.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '添加音乐开始播放',
+            style: TextStyle(
+              fontSize: 13,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: playlistProvider.addFiles,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('添加'),
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              textStyle: const TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGradientProgress(
     BuildContext context,
     PlayerProvider playerProvider,
     double sliderValue,
     ColorScheme scheme,
   ) {
     return SizedBox(
-      height: 24,
+      height: 22,
       child: SliderTheme(
         data: SliderTheme.of(context).copyWith(
-          trackHeight: 4,
-          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+          trackHeight: 3,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
           activeTrackColor: scheme.primary,
-          inactiveTrackColor: scheme.surfaceContainerHighest,
+          inactiveTrackColor: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
           thumbColor: scheme.primary,
-          overlayColor: scheme.primary.withValues(alpha: 0.2),
+          overlayColor: scheme.primary.withValues(alpha: 0.15),
           trackShape: _RoundedTrackShape(),
         ),
         child: Slider(
@@ -191,16 +262,16 @@ class _MiniPlayerState extends State<MiniPlayer>
         );
       },
       child: Container(
-        width: 56,
-        height: 56,
+        width: 52,
+        height: 52,
         decoration: BoxDecoration(
           color: scheme.primaryContainer,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: scheme.primary.withValues(alpha: 0.2),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+              color: scheme.primary.withValues(alpha: isPlaying ? 0.25 : 0.1),
+              blurRadius: isPlaying ? 16 : 8,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -211,8 +282,8 @@ class _MiniPlayerState extends State<MiniPlayer>
               if (track?.artUri != null)
                 CachedNetworkImage(
                   imageUrl: track!.artUri!,
-                  width: 56,
-                  height: 56,
+                  width: 52,
+                  height: 52,
                   fit: BoxFit.cover,
                   placeholder: (ctx, url) => _buildAlbumPlaceholder(scheme),
                   errorWidget: (ctx, url, err) =>
@@ -220,23 +291,23 @@ class _MiniPlayerState extends State<MiniPlayer>
                 )
               else
                 _buildAlbumPlaceholder(scheme),
-              // 中心圆点（唱片效果）
+              // 中心唱片圆点
               Center(
                 child: Container(
-                  width: 16,
-                  height: 16,
+                  width: 14,
+                  height: 14,
                   decoration: BoxDecoration(
                     color: scheme.surface,
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: scheme.outline.withValues(alpha: 0.2),
+                      color: scheme.outline.withValues(alpha: 0.15),
                       width: 1.5,
                     ),
                   ),
                   child: Center(
                     child: Container(
-                      width: 5,
-                      height: 5,
+                      width: 4,
+                      height: 4,
                       decoration: BoxDecoration(
                         color: scheme.primary,
                         shape: BoxShape.circle,
@@ -245,21 +316,6 @@ class _MiniPlayerState extends State<MiniPlayer>
                   ),
                 ),
               ),
-              // 播放状态指示
-              if (isPlaying)
-                Positioned(
-                  right: 2,
-                  bottom: 2,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: scheme.surface, width: 1.5),
-                    ),
-                  ),
-                ),
             ],
           ),
         ),
@@ -273,8 +329,8 @@ class _MiniPlayerState extends State<MiniPlayer>
       child: Center(
         child: Icon(
           Icons.music_note_rounded,
-          size: 24,
-          color: scheme.onPrimaryContainer.withValues(alpha: 0.7),
+          size: 22,
+          color: scheme.onPrimaryContainer.withValues(alpha: 0.6),
         ),
       ),
     );
@@ -295,11 +351,12 @@ class _MiniPlayerState extends State<MiniPlayer>
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontWeight: FontWeight.w600,
-            fontSize: 15,
+            fontSize: 14,
             color: scheme.onSurface,
+            letterSpacing: 0.1,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Row(
           children: [
             if (track?.artist != null) ...[
@@ -308,15 +365,18 @@ class _MiniPlayerState extends State<MiniPlayer>
                   track!.artist!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: scheme.outline),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                  ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 5),
                 child: Text(
                   '·',
                   style: TextStyle(
-                    color: scheme.outline.withValues(alpha: 0.5),
+                    color: scheme.outline.withValues(alpha: 0.4),
                   ),
                 ),
               ),
@@ -324,23 +384,23 @@ class _MiniPlayerState extends State<MiniPlayer>
             Text(
               _fmt(playerProvider.position),
               style: TextStyle(
-                fontSize: 12,
-                color: scheme.outline,
+                fontSize: 11,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
             Text(
               ' / ',
               style: TextStyle(
-                fontSize: 12,
-                color: scheme.outline.withValues(alpha: 0.5),
+                fontSize: 11,
+                color: scheme.outline.withValues(alpha: 0.3),
               ),
             ),
             Text(
               _fmt(playerProvider.duration),
               style: TextStyle(
-                fontSize: 12,
-                color: scheme.outline,
+                fontSize: 11,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -360,7 +420,7 @@ class _MiniPlayerState extends State<MiniPlayer>
       children: [
         // 播放模式按钮
         _buildPlayModeButton(context, scheme),
-        const SizedBox(width: 4),
+        const SizedBox(width: 2),
         // 上一首
         _buildControlButton(
           icon: Icons.skip_previous_rounded,
@@ -376,10 +436,10 @@ class _MiniPlayerState extends State<MiniPlayer>
           },
           scheme: scheme,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         // 播放/暂停
         _buildPlayPauseButton(playerProvider, playlistProvider, scheme),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         // 下一首
         _buildControlButton(
           icon: Icons.skip_next_rounded,
@@ -412,17 +472,17 @@ class _MiniPlayerState extends State<MiniPlayer>
           onTap: () => playlistProvider.cyclePlayMode(),
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isActive
-                  ? scheme.primaryContainer.withValues(alpha: 0.7)
+                  ? scheme.primaryContainer.withValues(alpha: 0.6)
                   : Colors.transparent,
             ),
             child: Icon(
               _getPlayModeIcon(mode),
-              size: 18,
+              size: 17,
               color: isActive ? scheme.primary : scheme.outline,
             ),
           ),
@@ -444,14 +504,12 @@ class _MiniPlayerState extends State<MiniPlayer>
         child: InkWell(
           onTap: onPressed,
           borderRadius: BorderRadius.circular(20),
+          hoverColor: scheme.primary.withValues(alpha: 0.08),
           child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-            ),
-            child: Icon(icon, size: 24, color: scheme.onSurfaceVariant),
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(shape: BoxShape.circle),
+            child: Icon(icon, size: 22, color: scheme.onSurfaceVariant),
           ),
         ),
       ),
@@ -472,7 +530,6 @@ class _MiniPlayerState extends State<MiniPlayer>
             if (playerProvider.isPlaying) {
               await playerProvider.pause();
             } else {
-              // 如果有当前曲目且播放器没有时长（说明没有加载音频），先加载曲目
               final current = playlistProvider.current;
               if (current != null && playerProvider.duration == Duration.zero) {
                 await playerProvider.playTrackSmart(
@@ -487,14 +544,14 @@ class _MiniPlayerState extends State<MiniPlayer>
           borderRadius: BorderRadius.circular(24),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            width: 52,
-            height: 52,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
                 colors: [
                   scheme.primary,
-                  scheme.primary.withValues(alpha: 0.85),
+                  scheme.primary.withValues(alpha: 0.8),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -502,8 +559,8 @@ class _MiniPlayerState extends State<MiniPlayer>
               boxShadow: [
                 BoxShadow(
                   color: scheme.primary.withValues(alpha: 0.35),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  blurRadius: 12,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
@@ -517,7 +574,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                     ? Icons.pause_rounded
                     : Icons.play_arrow_rounded,
                 key: ValueKey(playerProvider.isPlaying),
-                size: 30,
+                size: 26,
                 color: scheme.onPrimary,
               ),
             ),
@@ -537,16 +594,16 @@ class _MiniPlayerState extends State<MiniPlayer>
         _buildVolumeIcon(playerProvider.volume, scheme),
         const SizedBox(width: 4),
         SizedBox(
-          width: 90,
+          width: 85,
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              activeTrackColor: scheme.primary,
-              inactiveTrackColor: scheme.surfaceContainerHighest,
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+              activeTrackColor: scheme.primary.withValues(alpha: 0.8),
+              inactiveTrackColor: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
               thumbColor: scheme.primary,
-              overlayColor: scheme.primary.withValues(alpha: 0.2),
+              overlayColor: scheme.primary.withValues(alpha: 0.15),
             ),
             child: Slider(
               value: playerProvider.volume,
@@ -570,7 +627,7 @@ class _MiniPlayerState extends State<MiniPlayer>
       icon = Icons.volume_up_rounded;
     }
 
-    return Icon(icon, size: 20, color: scheme.outline);
+    return Icon(icon, size: 18, color: scheme.outline.withValues(alpha: 0.7));
   }
 }
 
@@ -584,7 +641,7 @@ class _RoundedTrackShape extends RoundedRectSliderTrackShape {
     bool isEnabled = false,
     bool isDiscrete = false,
   }) {
-    final trackHeight = sliderTheme.trackHeight ?? 4;
+    final trackHeight = sliderTheme.trackHeight ?? 3;
     final trackLeft = offset.dx + 12;
     final trackTop = offset.dy + (parentBox.size.height - trackHeight) / 2;
     final trackWidth = parentBox.size.width - 24;

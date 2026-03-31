@@ -4,8 +4,53 @@ import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 
 /// 简化版播放列表面板，用于 PlayerPage
-class PlaylistPanel extends StatelessWidget {
+class PlaylistPanel extends StatefulWidget {
   const PlaylistPanel({super.key});
+
+  @override
+  State<PlaylistPanel> createState() => _PlaylistPanelState();
+}
+
+class _PlaylistPanelState extends State<PlaylistPanel> {
+  final ScrollController _scrollController = ScrollController();
+  int _lastScrolledIndex = -1;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// 自动滚动到当前播放曲目
+  void _scrollToCurrentTrack(int currentIndex, int totalTracks) {
+    if (currentIndex < 0 ||
+        currentIndex >= totalTracks ||
+        currentIndex == _lastScrolledIndex) {
+      return;
+    }
+    _lastScrolledIndex = currentIndex;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+
+      // 估算每个 ListTile 的高度（dense: true + padding）
+      const estimatedItemHeight = 56.0;
+      final targetOffset = currentIndex * estimatedItemHeight;
+      final maxOffset = _scrollController.position.maxScrollExtent;
+      final viewportHeight = _scrollController.position.viewportDimension;
+
+      // 居中显示当前曲目
+      final centeredOffset =
+          (targetOffset - viewportHeight / 2 + estimatedItemHeight / 2)
+              .clamp(0.0, maxOffset);
+
+      _scrollController.animateTo(
+        centeredOffset,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +64,11 @@ class PlaylistPanel extends StatelessWidget {
         playlistProvider.currentIndex < tracks.length;
     final current = hasValidIndex ? playlistProvider.current : null;
     final scheme = Theme.of(context).colorScheme;
+
+    // 自动滚动到当前曲目
+    if (hasValidIndex) {
+      _scrollToCurrentTrack(playlistProvider.currentIndex, tracks.length);
+    }
 
     if (tracks.isEmpty) {
       return Center(
@@ -108,6 +158,7 @@ class PlaylistPanel extends StatelessWidget {
         // 列表
         Expanded(
           child: ReorderableListView.builder(
+            scrollController: _scrollController,
             itemCount: tracks.length,
             onReorder: (oldIndex, newIndex) {
               playlistProvider.reorderTrack(oldIndex, newIndex);

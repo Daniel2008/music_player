@@ -4,7 +4,7 @@ import '../../providers/theme_provider.dart';
 import '../../providers/api_settings_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
-import '../../providers/search_provider.dart';
+import '../../services/gd_music_api.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -98,13 +98,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             _apiUrlController.text,
                           );
                           if (context.mounted) {
-                            // 同步到其他 provider
-                            final downloadProv = context.read<DownloadProvider>();
-                            downloadProv.updateApiBaseUrl(apiSettings.apiBaseUrl);
-                            playerProvider.gdApi.updateBaseUrl(apiSettings.apiBaseUrl);
-                            context.read<SearchProvider>().updateApiSettings(
-                              baseUrl: apiSettings.apiBaseUrl,
-                              timeoutSeconds: apiSettings.requestTimeout,
+                            // 同步到共享 API 客户端
+                            context.read<GdMusicApiClient>().updateBaseUrl(
+                              apiSettings.apiBaseUrl,
                             );
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('API 地址已保存')),
@@ -161,13 +157,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   onChanged: (value) {
                     final seconds = value.round();
                     apiSettings.setRequestTimeout(seconds);
-                    // 同步到其他 provider
-                    playerProvider.gdApi.updateTimeoutSeconds(seconds);
-                    context.read<DownloadProvider>().updateTimeout(seconds);
-                    context.read<SearchProvider>().updateApiSettings(
-                      baseUrl: apiSettings.apiBaseUrl,
-                      timeoutSeconds: seconds,
-                    );
+                    // 同步到共享 API 客户端
+                    context.read<GdMusicApiClient>().updateTimeoutSeconds(seconds);
                   },
                 ),
               ),
