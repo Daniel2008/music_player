@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -146,6 +147,43 @@ class GdPicUrl {
   }
 }
 
+/// 简单的内存缓存（LRU + TTL）
+class _ApiCache<K, V> {
+  final int maxSize;
+  final Duration ttl;
+  final LinkedHashMap<K, _CacheEntry<V>> _data = LinkedHashMap();
+
+  _ApiCache({this.maxSize = 50, this.ttl = const Duration(minutes: 2)});
+
+  V? get(K key) {
+    final entry = _data[key];
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.time) > ttl) {
+      _data.remove(key);
+      return null;
+    }
+    _data.remove(key); // re-insert for LRU ordering
+    _data[key] = entry;
+    return entry.value;
+  }
+
+  void set(K key, V value) {
+    _data.remove(key);
+    if (_data.length >= maxSize) {
+      _data.remove(_data.keys.first);
+    }
+    _data[key] = _CacheEntry(value, DateTime.now());
+  }
+
+  void clear() => _data.clear();
+}
+
+class _CacheEntry<V> {
+  final V value;
+  final DateTime time;
+  const _CacheEntry(this.value, this.time);
+}
+
 /// GD 音乐台 API 客户端
 ///
 /// 支持配置 API 地址、超时时间等参数
@@ -153,6 +191,17 @@ class GdMusicApiClient {
   Uri _baseUri;
   final http.Client _client;
   Duration _timeout;
+
+  // 内存缓存
+  final _searchCache = _ApiCache<String, List<GdSearchTrack>>(
+    maxSize: 30, ttl: Duration(minutes: 2),
+  );
+  final _urlCache = _ApiCache<String, GdTrackUrl>(
+    maxSize: 100, ttl: Duration(minutes: 10),
+  );
+  final _lyricCache = _ApiCache<String, GdLyric>(
+    maxSize: 100, ttl: Duration(minutes: 10),
+  );
 
   /// 默认 API 地址
   static const String defaultBaseUrl = 'https://music-api.gdstudio.xyz/api.php';
@@ -182,6 +231,9 @@ class GdMusicApiClient {
       normalizedUrl = normalizedUrl.substring(0, normalizedUrl.length - 1);
     }
     _baseUri = Uri.parse(normalizedUrl);
+    _searchCache.clear();
+    _urlCache.clear();
+    _lyricCache.clear();
   }
 
   /// 更新超时时间
@@ -254,6 +306,10 @@ class GdMusicApiClient {
     int count = 20,
     int page = 1,
   }) async {
+    final cacheKey = '$keyword|$source|$count|$page';
+    final cached = _searchCache.get(cacheKey);
+    if (cached != null) return cached;
+
     final json = await _getJson(
       _baseUri.replace(
         queryParameters: {
@@ -267,11 +323,13 @@ class GdMusicApiClient {
     );
 
     if (json is List) {
-      return json
+      final result = json
           .whereType<Map>()
           .map((e) => GdSearchTrack.fromJson(e.cast<String, dynamic>()))
           .where((t) => t.id.isNotEmpty && t.name.isNotEmpty)
           .toList(growable: false);
+      _searchCache.set(cacheKey, result);
+      return result;
     }
 
     throw const FormatException('Unexpected search response');
@@ -304,6 +362,10 @@ class GdMusicApiClient {
     required String id,
     String br = '999',
   }) async {
+    final cacheKey = '$source|$id|$br';
+    final cached = _urlCache.get(cacheKey);
+    if (cached != null) return cached;
+
     final json = await _getJson(
       _baseUri.replace(
         queryParameters: {'types': 'url', 'source': source, 'id': id, 'br': br},
@@ -315,6 +377,7 @@ class GdMusicApiClient {
       if (url.url.isEmpty) {
         throw const FormatException('Empty url in response');
       }
+      _urlCache.set(cacheKey, url);
       return url;
     }
 
@@ -326,6 +389,10 @@ class GdMusicApiClient {
   /// [source] 音乐源
   /// [id] 歌词 ID（通常与歌曲 ID 相同）
   Future<GdLyric> getLyric({required String source, required String id}) async {
+    final cacheKey = '$source|$id';
+    final cached = _lyricCache.get(cacheKey);
+    if (cached != null) return cached;
+
     final json = await _getJson(
       _baseUri.replace(
         queryParameters: {'types': 'lyric', 'source': source, 'id': id},
@@ -333,7 +400,9 @@ class GdMusicApiClient {
     );
 
     if (json is Map<String, dynamic>) {
-      return GdLyric.fromJson(json);
+      final lyric = GdLyric.fromJson(json);
+      _lyricCache.set(cacheKey, lyric);
+      return lyric;
     }
 
     throw const FormatException('Unexpected lyric response');

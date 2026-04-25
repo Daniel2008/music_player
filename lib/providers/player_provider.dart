@@ -10,11 +10,13 @@ import 'playlist_provider.dart';
 class PlayerProvider extends ChangeNotifier {
   final SoLoud _soloud = SoLoud.instance;
   GdMusicApiClient _gdApi;
+  final bool _ownsApi;
 
   AudioSource? _currentSource;
   SoundHandle? _currentHandle;
   Timer? _positionTimer;
   AudioData? _audioData;
+  bool _disposed = false;
 
   /// 播放完成回调，用于自动下一曲
   VoidCallback? onTrackComplete;
@@ -40,6 +42,8 @@ class PlayerProvider extends ChangeNotifier {
   int lyricRevision = 0;
   // 本地歌曲在线歌词缓存：track.id -> absolute lrc path
   final Map<String, String> localLyricPaths = {};
+  static const int _maxLocalLyricPaths = 50;
+  final List<String> _localLyricOrder = []; // LRU 顺序
 
   // 是否自动为本地歌曲搜索在线歌词
   bool autoFetchLyricForLocal = true;
@@ -55,7 +59,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _initialized = false;
 
   PlayerProvider({GdMusicApiClient? gdApi})
-      : _gdApi = gdApi ?? GdMusicApiClient() {
+      : _gdApi = gdApi ?? GdMusicApiClient(),
+        _ownsApi = gdApi == null {
     _init();
   }
 
@@ -73,7 +78,7 @@ class PlayerProvider extends ChangeNotifier {
       _initialized = true;
       notifyListeners();
     } catch (e) {
-      // 静默处理初始化失败
+      debugPrint('SoLoud 初始化失败: $e');
     }
   }
 
@@ -97,7 +102,7 @@ class PlayerProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      // 静默处理错误
+      debugPrint('更新音频数据失败: $e');
     }
   }
 
@@ -152,11 +157,10 @@ class PlayerProvider extends ChangeNotifier {
     _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (
       _,
     ) async {
+      if (_disposed) return;
       if (_currentHandle != null && isPlaying) {
         try {
-          // 检查句柄是否有效
           if (!_soloud.getIsValidVoiceHandle(_currentHandle!)) {
-            // 播放完成
             _handleComplete();
             return;
           }
@@ -164,10 +168,8 @@ class PlayerProvider extends ChangeNotifier {
           final pos = _soloud.getPosition(_currentHandle!);
           position = pos;
 
-          // 更新 FFT 数据（不触发 notifyListeners，频谱视图自行读取）
           _updateAudioData();
 
-          // 通知频率降低到 250ms，减少 UI 重建次数
           final posChanged = (pos - _lastNotifiedPosition).abs() >
               const Duration(milliseconds: 250);
 
@@ -176,7 +178,7 @@ class PlayerProvider extends ChangeNotifier {
             notifyListeners();
           }
         } catch (e) {
-          // 忽略错误
+          debugPrint('位置更新失败: $e');
         }
       }
     });
@@ -334,8 +336,8 @@ class PlayerProvider extends ChangeNotifier {
       await file.writeAsString(lyric.lyric);
       lyricRevision++;
       notifyListeners();
-    } catch (_) {
-      // Ignore lyric fetch errors.
+    } catch (e) {
+      debugPrint('歌词缓存失败: $e');
     }
   }
 
@@ -397,6 +399,11 @@ class PlayerProvider extends ChangeNotifier {
       final path = '${dir.path}/$filename';
       final file = File(path);
       await file.writeAsString(lyric.lyric);
+      _localLyricOrder.add(track.id);
+      if (_localLyricOrder.length > _maxLocalLyricPaths) {
+        final oldest = _localLyricOrder.removeAt(0);
+        localLyricPaths.remove(oldest);
+      }
       localLyricPaths[track.id] = path;
       lyricRevision++;
       notifyListeners();
@@ -460,21 +467,28 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    if (_disposed) return;
     _positionTimer?.cancel();
-    if (_currentHandle != null) {
-      try {
-        await _soloud.stop(_currentHandle!);
-      } catch (e) {
-        // 忽略错误
+    try {
+      if (_currentHandle != null) {
+        try {
+          await _soloud.stop(_currentHandle!);
+        } catch (e) {
+          debugPrint('停止播放失败: $e');
+        }
+        _currentHandle = null;
       }
+      if (_currentSource != null) {
+        try {
+          await _soloud.disposeSource(_currentSource!);
+        } catch (e) {
+          debugPrint('释放音频源失败: $e');
+        }
+        _currentSource = null;
+      }
+    } catch (e) {
+      debugPrint('stop 整体异常: $e');
       _currentHandle = null;
-    }
-    if (_currentSource != null) {
-      try {
-        await _soloud.disposeSource(_currentSource!);
-      } catch (e) {
-        // 忽略错误
-      }
       _currentSource = null;
     }
     isPlaying = false;
@@ -509,7 +523,9 @@ class PlayerProvider extends ChangeNotifier {
     fftData.fillRange(0, fftData.length, 0);
     waveData.fillRange(0, waveData.length, 0);
     notifyListeners();
-    onTrackComplete?.call();
+    if (onTrackComplete != null && !_disposed) {
+      onTrackComplete!.call();
+    }
   }
 
   Duration _clampDuration(Duration value, Duration min, Duration max) {
@@ -520,14 +536,14 @@ class PlayerProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _positionTimer?.cancel();
     _audioData?.dispose();
-    // 注意：_gdApi 是共享实例，由 app.dart 中的 Provider<GdMusicApiClient> 统一管理
-    // 不在此处 close，避免其他 Provider（Search/Download）请求失败
     if (_currentSource != null) {
       _soloud.disposeSource(_currentSource!);
     }
     _soloud.deinit();
+    if (_ownsApi) _gdApi.close();
     super.dispose();
   }
 }

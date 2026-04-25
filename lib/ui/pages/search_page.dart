@@ -22,6 +22,7 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  bool _hasText = false;
 
   String? _source;
   String? _quality;
@@ -29,14 +30,22 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
-    // 初始化时从设置中获取默认值
+    _controller.addListener(_onTextChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final apiSettings = context.read<ApiSettingsProvider>();
       setState(() {
         _source = apiSettings.defaultSource;
         _quality = apiSettings.playQuality.brValue;
       });
     });
+  }
+
+  void _onTextChanged() {
+    final empty = _controller.text.isEmpty;
+    if (empty != _hasText) {
+      setState(() => _hasText = !empty);
+    }
   }
 
   List<(String, String)> _getAvailableSources(ApiSettingsProvider apiSettings) {
@@ -51,6 +60,7 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -114,13 +124,12 @@ class _SearchPageState extends State<SearchPage> {
                       decoration: InputDecoration(
                         hintText: '搜索歌曲、歌手、专辑...',
                         prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _controller.text.isNotEmpty
+                        suffixIcon: _hasText
                             ? IconButton(
                                 icon: const Icon(Icons.clear),
                                 onPressed: () {
                                   _controller.clear();
                                   searchProvider.clearSearch();
-                                  setState(() {});
                                 },
                               )
                             : null,
@@ -135,7 +144,6 @@ class _SearchPageState extends State<SearchPage> {
                         ),
                       ),
                       onSubmitted: (_) => _search(searchProvider),
-                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -459,24 +467,21 @@ class _SearchResultItemState extends State<_SearchResultItem>
 
   @override
   Widget build(BuildContext context) {
-    // 性能优化：只 watch 跟此组件渲染直接相关的 Provider
-    // PlayerProvider 不需要 watch — 不需要响应播放进度变化
-    final favoritesProvider = context.watch<FavoritesProvider>();
-    final downloadProvider = context.watch<DownloadProvider>();
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final isDownloading = downloadProvider.isDownloading(
-      widget.track.source,
-      widget.track.id,
+    final isFavorite = context.select<FavoritesProvider, bool>(
+      (p) => p.isFavorite(widget.track),
     );
-    final downloadProgress = downloadProvider.getDownloadProgress(
-      widget.track.source,
-      widget.track.id,
+    final downloadState = context.select<DownloadProvider, (bool, double)>(
+      (p) => (
+        p.isDownloading(widget.track.source, widget.track.id),
+        p.getDownloadProgress(widget.track.source, widget.track.id),
+      ),
     );
-    final isFavorite = favoritesProvider.isFavorite(widget.track);
+    final isDownloading = downloadState.$1;
+    final downloadProgress = downloadState.$2;
 
-    // 构建封面 URL
     final gdApi = context.read<GdMusicApiClient>();
     final coverUrl = gdApi.buildCoverUrl(widget.track.picId, widget.track.source);
 
@@ -556,7 +561,7 @@ class _SearchResultItemState extends State<_SearchResultItem>
                         icon: isFavorite ? Icons.favorite : Icons.favorite_border,
                         color: isFavorite ? Colors.red : scheme.outline,
                         tooltip: isFavorite ? '取消收藏' : '收藏',
-                        onPressed: () => favoritesProvider.toggleFavorite(widget.track),
+                        onPressed: () => context.read<FavoritesProvider>().toggleFavorite(widget.track),
                       ),
                       // 下载按钮
                       if (isDownloading)
@@ -587,7 +592,7 @@ class _SearchResultItemState extends State<_SearchResultItem>
                           icon: Icons.download_outlined,
                           color: scheme.outline,
                           tooltip: '下载',
-                          onPressed: () => _downloadTrack(context, downloadProvider, widget.track),
+                          onPressed: () => _downloadTrack(context, context.read<DownloadProvider>(), widget.track),
                         ),
                       // 播放按钮
                       const SizedBox(width: 2),
@@ -621,13 +626,18 @@ class _SearchResultItemState extends State<_SearchResultItem>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: coverUrl != null
-            ? CachedNetworkImage(
-                imageUrl: coverUrl,
+            ? Image(
+                image: ResizeImage(
+                  CachedNetworkImageProvider(coverUrl!),
+                  width: 48,
+                  height: 48,
+                ),
                 width: 48,
                 height: 48,
                 fit: BoxFit.cover,
-                placeholder: (ctx, url) => _buildCoverPlaceholder(scheme),
-                errorWidget: (ctx, url, err) => _buildCoverPlaceholder(scheme),
+                errorBuilder: (ctx, err, _) => _buildCoverPlaceholder(scheme),
+                frameBuilder: (ctx, child, frame, _) =>
+                    frame == null ? _buildCoverPlaceholder(scheme) : child,
               )
             : _buildCoverPlaceholder(scheme),
       ),

@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 import 'package:window_manager/window_manager.dart';
 import 'dart:io';
 import 'app.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 限制 Flutter 图片缓存防止内存膨胀
+  PaintingBinding.instance.imageCache.maximumSize = 200;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 20 << 20; // 20MB
 
 
   // 仅在桌面平台初始化窗口管理器

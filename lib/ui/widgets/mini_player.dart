@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../models/track.dart';
 
 
 /// 固定在底部的迷你播放控制栏
@@ -122,54 +123,56 @@ class _MiniPlayerState extends State<MiniPlayer>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 渐变进度条 — 高频更新，独立 Consumer
-          Consumer<PlayerProvider>(
-            builder: (context, playerProvider, _) {
-              final pos = playerProvider.position.inMilliseconds;
-              final dur = max(1, playerProvider.duration.inMilliseconds);
-              final progress = (pos / dur).clamp(0.0, 1.0);
+          // 渐变进度条 — 仅 position/duration 变化时重绘
+          Selector<PlayerProvider, double>(
+            selector: (_, p) {
+              final dur = max(1, p.duration.inMilliseconds);
+              return (p.position.inMilliseconds / dur).clamp(0.0, 1.0);
+            },
+            builder: (context, progress, _) {
               final sliderValue = _dragValue ?? progress;
-              return _buildGradientProgress(context, playerProvider, sliderValue, scheme);
+              final p = context.read<PlayerProvider>();
+              return _buildGradientProgress(context, p, sliderValue, scheme);
             },
           ),
-          // 主内容区域
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
             child: Row(
               children: [
-                // 专辑封面（旋转） — 仅需 isPlaying
-                Consumer<PlayerProvider>(
-                  builder: (context, player, _) {
-                    // 同步旋转动画
-                    if (player.isPlaying && !_rotationController.isAnimating) {
+                Selector<PlayerProvider, bool>(
+                  selector: (_, p) => p.isPlaying,
+                  builder: (context, isPlaying, _) {
+                    if (isPlaying && !_rotationController.isAnimating) {
                       _rotationController.repeat();
-                    } else if (!player.isPlaying && _rotationController.isAnimating) {
+                    } else if (!isPlaying && _rotationController.isAnimating) {
                       _rotationController.stop();
                     }
-                    return _buildRotatingAlbumArt(track, player.isPlaying, scheme);
+                    return _buildRotatingAlbumArt(track, isPlaying, scheme);
                   },
                 ),
                 const SizedBox(width: 14),
-                // 曲目信息 — 位置/时长需要高频更新
                 Expanded(
                   flex: 2,
-                  child: Consumer<PlayerProvider>(
-                    builder: (context, player, _) {
-                      return _buildTrackInfo(track, player, scheme);
+                  child: Selector<PlayerProvider, (Duration, Duration)>(
+                    selector: (_, p) => (p.position, p.duration),
+                    builder: (context, pd, _) {
+                      return _buildTrackInfo(track, pd.$1, pd.$2, scheme);
                     },
                   ),
                 ),
-                // 播放控制 — 需要 isPlaying
-                Consumer<PlayerProvider>(
-                  builder: (context, player, _) {
-                    return _buildPlayControls(player, playlistProvider, scheme);
+                Selector<PlayerProvider, bool>(
+                  selector: (_, p) => p.isPlaying,
+                  builder: (context, isPlaying, _) {
+                    final p = context.read<PlayerProvider>();
+                    return _buildPlayControls(p, playlistProvider, scheme, isPlaying);
                   },
                 ),
                 const SizedBox(width: 8),
-                // 音量控制
-                Consumer<PlayerProvider>(
-                  builder: (context, player, _) {
-                    return _buildVolumeControl(player, scheme);
+                Selector<PlayerProvider, double>(
+                  selector: (_, p) => p.volume,
+                  builder: (context, volume, _) {
+                    final p = context.read<PlayerProvider>();
+                    return _buildVolumeControl(p, scheme, volume);
                   },
                 ),
               ],
@@ -273,7 +276,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   Widget _buildRotatingAlbumArt(
-    dynamic track,
+    Track? track,
     bool isPlaying,
     ColorScheme scheme,
   ) {
@@ -306,15 +309,20 @@ class _MiniPlayerState extends State<MiniPlayer>
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 500),
                 child: track?.artUri != null
-                    ? CachedNetworkImage(
+                    ? Image(
                         key: ValueKey(track!.artUri),
-                        imageUrl: track.artUri!,
+                        image: ResizeImage(
+                          CachedNetworkImageProvider(track.artUri!),
+                          width: 52,
+                          height: 52,
+                        ),
                         width: 52,
                         height: 52,
                         fit: BoxFit.cover,
-                        placeholder: (ctx, url) => _buildAlbumPlaceholder(scheme),
-                        errorWidget: (ctx, url, err) =>
+                        errorBuilder: (ctx, err, _) =>
                             _buildAlbumPlaceholder(scheme),
+                        frameBuilder: (ctx, child, frame, _) =>
+                            frame == null ? _buildAlbumPlaceholder(scheme) : child,
                       )
                     : _buildAlbumPlaceholder(scheme),
               ),
@@ -364,34 +372,20 @@ class _MiniPlayerState extends State<MiniPlayer>
   }
 
   Widget _buildTrackInfo(
-    dynamic track,
-    PlayerProvider playerProvider,
+    Track? track,
+    Duration position,
+    Duration duration,
     ColorScheme scheme,
   ) {
     final trackTitle = track?.title ?? '未选择歌曲';
-    final trackArtist = track?.artist as String?;
+    final trackArtist = track?.artist;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 歌曲名 — 切换动画
         AnimatedSwitcher(
-          duration: const Duration(milliseconds: 350),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.3),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
-              ),
-            );
-          },
+          duration: const Duration(milliseconds: 300),
           child: Text(
             trackTitle,
             key: ValueKey(trackTitle),
@@ -401,33 +395,27 @@ class _MiniPlayerState extends State<MiniPlayer>
               fontWeight: FontWeight.w600,
               fontSize: 14,
               color: scheme.onSurface,
-              letterSpacing: 0.1,
             ),
           ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 2),
         Row(
           children: [
             if (trackArtist != null) ...[
               Flexible(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: Text(
-                    trackArtist,
-                    key: ValueKey(trackArtist),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                    ),
+                child: Text(
+                  trackArtist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
                   ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                child: Text(
-                  '·',
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text('·',
                   style: TextStyle(
                     color: scheme.outline.withValues(alpha: 0.4),
                   ),
@@ -435,7 +423,7 @@ class _MiniPlayerState extends State<MiniPlayer>
               ),
             ],
             Text(
-              _fmt(playerProvider.position),
+              _fmt(position),
               style: TextStyle(
                 fontSize: 11,
                 color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
@@ -450,7 +438,7 @@ class _MiniPlayerState extends State<MiniPlayer>
               ),
             ),
             Text(
-              _fmt(playerProvider.duration),
+              _fmt(duration),
               style: TextStyle(
                 fontSize: 11,
                 color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
@@ -467,6 +455,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     PlayerProvider playerProvider,
     PlaylistProvider playlistProvider,
     ColorScheme scheme,
+    bool isPlaying,
   ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -640,11 +629,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   Widget _buildVolumeControl(
     PlayerProvider playerProvider,
     ColorScheme scheme,
+    double volume,
   ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildVolumeIcon(playerProvider.volume, scheme),
+        _buildVolumeIcon(volume, scheme),
         const SizedBox(width: 4),
         SizedBox(
           width: 100,

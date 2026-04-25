@@ -457,13 +457,18 @@ class _FavoriteItemState extends State<_FavoriteItem> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: coverUrl != null
-            ? CachedNetworkImage(
-                imageUrl: coverUrl,
+            ? Image(
+                image: ResizeImage(
+                  CachedNetworkImageProvider(coverUrl!),
+                  width: 48,
+                  height: 48,
+                ),
                 width: 48,
                 height: 48,
                 fit: BoxFit.cover,
-                placeholder: (ctx, url) => _buildCoverPlaceholder(),
-                errorWidget: (ctx, url, err) => _buildCoverPlaceholder(),
+                errorBuilder: (ctx, err, _) => _buildCoverPlaceholder(),
+                frameBuilder: (ctx, child, frame, _) =>
+                    frame == null ? _buildCoverPlaceholder() : child,
               )
             : _buildCoverPlaceholder(),
       ),

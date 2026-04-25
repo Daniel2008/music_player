@@ -11,7 +11,7 @@ class HistoryProvider extends ChangeNotifier {
   static const String _fileName = 'play_history.json';
   Timer? _saveDebounce;
 
-  List<Track> get history => List.unmodifiable(_history);
+  List<Track> get history => _history;
   bool get isEmpty => _history.isEmpty;
 
   HistoryProvider() {
@@ -103,7 +103,6 @@ class HistoryProvider extends ChangeNotifier {
   @override
   void dispose() {
     _saveDebounce?.cancel();
-    _doSave(); // 确保最后一次保存
     super.dispose();
   }
 }

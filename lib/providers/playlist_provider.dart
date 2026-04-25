@@ -19,6 +19,7 @@ enum PlayMode {
 class PlaylistProvider extends ChangeNotifier {
   final Playlist playlist;
   static const String _storageKey = 'saved_playlist';
+  static const int _maxTracks = 500;
   final Random _random = Random();
   Timer? _saveDebounce;
 
@@ -51,13 +52,16 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   void addTrack(Track track) {
+    if (playlist.tracks.length >= _maxTracks) return;
     playlist.tracks.add(track);
     notifyListeners();
     _savePlaylist();
   }
 
   void addAll(List<Track> tracks) {
-    playlist.tracks.addAll(tracks);
+    final remaining = _maxTracks - playlist.tracks.length;
+    if (remaining <= 0) return;
+    playlist.tracks.addAll(tracks.take(remaining));
     notifyListeners();
     _savePlaylist();
   }
@@ -210,7 +214,8 @@ class PlaylistProvider extends ChangeNotifier {
     if (result != null) {
       final tracks = result.files.map((file) {
         final fileName = file.name;
-        final title = fileName.substring(0, fileName.lastIndexOf('.'));
+        final dotIndex = fileName.lastIndexOf('.');
+        final title = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
         return Track(title: title, path: file.path ?? '');
       }).toList();
 
@@ -223,15 +228,16 @@ class PlaylistProvider extends ChangeNotifier {
 
     if (result != null) {
       final directory = Directory(result);
-      final files = directory
-          .listSync()
+      final entities = await directory.list().toList();
+      final files = entities
           .where((entity) => entity is File && _isAudioFile(entity.path))
           .cast<File>()
           .toList();
 
       final tracks = files.map((file) {
         final fileName = file.path.split(Platform.pathSeparator).last;
-        final title = fileName.substring(0, fileName.lastIndexOf('.'));
+        final dotIndex = fileName.lastIndexOf('.');
+        final title = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
         return Track(title: title, path: file.path);
       }).toList();
 
@@ -245,20 +251,25 @@ class PlaylistProvider extends ChangeNotifier {
   int addOrSelectTrack(Track track) {
     final existingIndex = playlist.tracks.indexWhere((t) => t.id == track.id);
     if (existingIndex >= 0) {
-      setCurrentIndex(existingIndex);
+      playlist.currentIndex = existingIndex;
+      notifyListeners();
+      _savePlaylist();
       return existingIndex;
     }
-    addTrack(track);
-    final newIndex = playlist.tracks.length - 1;
-    setCurrentIndex(newIndex);
-    return newIndex;
+    playlist.tracks.add(track);
+    playlist.currentIndex = playlist.tracks.length - 1;
+    notifyListeners();
+    _savePlaylist();
+    return playlist.currentIndex;
   }
 
   bool _isAudioFile(String path) {
     final audioExtensions = [
       '.mp3', '.wav', '.aac', '.flac', '.ogg', '.wma', '.m4a', '.opus',
     ];
-    final extension = path.toLowerCase().substring(path.lastIndexOf('.'));
+    final dotIndex = path.lastIndexOf('.');
+    if (dotIndex <= 0) return false;
+    final extension = path.toLowerCase().substring(dotIndex);
     return audioExtensions.contains(extension);
   }
 

@@ -39,141 +39,54 @@ class ThemeProvider extends ChangeNotifier {
     _loadSettings();
   }
 
-  /// 构建精致的 TextTheme
   TextTheme _buildTextTheme(Brightness brightness) {
-    final baseTextTheme = brightness == Brightness.dark
+    final base = brightness == Brightness.dark
         ? ThemeData.dark().textTheme
         : ThemeData.light().textTheme;
+    final baseTheme = GoogleFonts.notoSansScTextTheme(base);
 
-    // 使用 Google Fonts 的 Noto Sans SC 作为中文字体
-    return GoogleFonts.notoSansScTextTheme(baseTextTheme).copyWith(
-      // 大标题：加粗、微加字距
-      displayLarge: GoogleFonts.notoSansSc(
-        fontSize: 32,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.5,
-      ),
-      // 页面标题
-      headlineMedium: GoogleFonts.notoSansSc(
-        fontSize: 24,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.3,
-      ),
-      // 卡片标题
-      titleLarge: GoogleFonts.notoSansSc(
-        fontSize: 20,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-      ),
-      titleMedium: GoogleFonts.notoSansSc(
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.1,
-      ),
-      // 正文
-      bodyLarge: GoogleFonts.notoSansSc(
-        fontSize: 16,
-        fontWeight: FontWeight.w400,
-        letterSpacing: 0.2,
-        height: 1.5,
-      ),
-      bodyMedium: GoogleFonts.notoSansSc(
-        fontSize: 14,
-        fontWeight: FontWeight.w400,
-        letterSpacing: 0.15,
-        height: 1.5,
-      ),
-      // 标签文本
-      labelLarge: GoogleFonts.notoSansSc(
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.1,
-      ),
-      labelMedium: GoogleFonts.notoSansSc(
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.3,
-      ),
-      labelSmall: GoogleFonts.notoSansSc(
-        fontSize: 11,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.3,
-      ),
+    final notoSansSc = GoogleFonts.notoSansSc;
+
+    return baseTheme.copyWith(
+      displayLarge: notoSansSc(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5),
+      headlineMedium: notoSansSc(fontSize: 24, fontWeight: FontWeight.w600, letterSpacing: -0.3),
+      titleLarge: notoSansSc(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: 0),
+      titleMedium: notoSansSc(fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: 0.1),
+      bodyLarge: notoSansSc(fontSize: 16, fontWeight: FontWeight.w400, letterSpacing: 0.2, height: 1.5),
+      bodyMedium: notoSansSc(fontSize: 14, fontWeight: FontWeight.w400, letterSpacing: 0.15, height: 1.5),
+      labelLarge: notoSansSc(fontSize: 14, fontWeight: FontWeight.w500, letterSpacing: 0.1),
+      labelMedium: notoSansSc(fontSize: 12, fontWeight: FontWeight.w500, letterSpacing: 0.3),
+      labelSmall: notoSansSc(fontSize: 11, fontWeight: FontWeight.w500, letterSpacing: 0.3),
     );
   }
 
   void _rebuildThemes() {
-    final lightTextTheme = _buildTextTheme(Brightness.light);
-    final darkTextTheme = _buildTextTheme(Brightness.dark);
-
     final lightScheme = ColorScheme.fromSeed(seedColor: _seedColor);
     final darkScheme = ColorScheme.fromSeed(
       seedColor: _seedColor,
       brightness: Brightness.dark,
     );
 
-    lightTheme = ThemeData(
-      colorScheme: lightScheme,
-      useMaterial3: true,
-      textTheme: lightTextTheme,
-      // 统一卡片样式
-      cardTheme: CardThemeData(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        clipBehavior: Clip.antiAlias,
-      ),
-      // 统一输入框样式
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: lightScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: lightScheme.primary, width: 1.5),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      ),
-      // 统一 FilledButton 样式
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        ),
-      ),
-      // 统一 Tooltip 样式
-      tooltipTheme: TooltipThemeData(
-        decoration: BoxDecoration(
-          color: lightScheme.inverseSurface,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        textStyle: TextStyle(
-          color: lightScheme.onInverseSurface,
-          fontSize: 12,
-        ),
-      ),
-    );
+    lightTheme = _buildThemeData(lightScheme, _buildTextTheme(Brightness.light));
+    darkTheme = _buildThemeData(darkScheme, _buildTextTheme(Brightness.dark))
+        .copyWith(scaffoldBackgroundColor: const Color(0xFF0F0F14));
+  }
 
-    darkTheme = ThemeData(
-      colorScheme: darkScheme,
+  ThemeData _buildThemeData(ColorScheme scheme, TextTheme textTheme) {
+    final isDark = scheme.brightness == Brightness.dark;
+    return ThemeData(
+      colorScheme: scheme,
       useMaterial3: true,
-      textTheme: darkTextTheme,
-      scaffoldBackgroundColor: const Color(0xFF0F0F14),
+      textTheme: textTheme,
       cardTheme: CardThemeData(
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         clipBehavior: Clip.antiAlias,
-        color: const Color(0xFF1A1A24),
+        color: isDark ? const Color(0xFF1A1A24) : null,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: darkScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: isDark ? 0.3 : 0.5),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide.none,
@@ -184,7 +97,7 @@ class ThemeProvider extends ChangeNotifier {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: darkScheme.primary, width: 1.5),
+          borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       ),
@@ -196,11 +109,11 @@ class ThemeProvider extends ChangeNotifier {
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: darkScheme.inverseSurface,
+          color: scheme.inverseSurface,
           borderRadius: BorderRadius.circular(8),
         ),
         textStyle: TextStyle(
-          color: darkScheme.onInverseSurface,
+          color: scheme.onInverseSurface,
           fontSize: 12,
         ),
       ),
@@ -246,21 +159,30 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   Future<void> loadSkin(String assetPath) async {
-    final jsonStr = await rootBundle.loadString(assetPath);
-    final data = json.decode(jsonStr) as Map<String, dynamic>;
-    final primary = _hexToColor(data['primary'] as String? ?? '#5B6ABF');
-    final brightness = (data['brightness'] as String? ?? 'dark').toLowerCase();
-    final isDark = brightness == 'dark';
+    try {
+      final jsonStr = await rootBundle.loadString(assetPath);
+      final data = json.decode(jsonStr) as Map<String, dynamic>;
+      final primary = _hexToColor(data['primary'] as String? ?? '#5B6ABF');
+      final brightness = (data['brightness'] as String? ?? 'dark').toLowerCase();
+      final isDark = brightness == 'dark';
 
-    _seedColor = primary;
-    mode = isDark ? ThemeMode.dark : ThemeMode.light;
-    _rebuildThemes(); // 复用完整主题构建逻辑，保留 textTheme、cardTheme 等配置
-    notifyListeners();
-    _saveSettings();
+      _seedColor = primary;
+      mode = isDark ? ThemeMode.dark : ThemeMode.light;
+      _rebuildThemes();
+      notifyListeners();
+      _saveSettings();
+    } catch (e) {
+      debugPrint('加载皮肤失败: $e');
+    }
   }
 
   Color _hexToColor(String hex) {
-    final h = hex.replaceAll('#', '');
-    return Color(int.parse('FF$h', radix: 16));
+    try {
+      final h = hex.replaceAll('#', '');
+      if (h.length == 6) {
+        return Color(int.parse('FF$h', radix: 16));
+      }
+    } catch (_) {}
+    return const Color(0xFF5B6ABF);
   }
 }

@@ -21,6 +21,7 @@ class _MainLayoutState extends State<MainLayout>
     with SingleTickerProviderStateMixin {
   int _selectedIndex = 0;
   late final AnimationController _navAnimationController;
+  final bool _isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   static const _pages = [
     PlayerPage(),
@@ -78,8 +79,7 @@ class _MainLayoutState extends State<MainLayout>
     final isDark = theme.mode == ThemeMode.dark;
     final scheme = Theme.of(context).colorScheme;
     final isWide = MediaQuery.sizeOf(context).width >= 800;
-    final isDesktop =
-        Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+    final isDesktop = _isDesktop;
 
     return Scaffold(
       body: Stack(
@@ -100,17 +100,9 @@ class _MainLayoutState extends State<MainLayout>
                       child: Column(
                         children: [
                           Expanded(
-                            child: Stack(
-                              children: [
-                                for (int i = 0; i < _pages.length; i++)
-                                  TickerMode(
-                                    enabled: i == _selectedIndex,
-                                    child: Offstage(
-                                      offstage: i != _selectedIndex,
-                                      child: _pages[i],
-                                    ),
-                                  ),
-                              ],
+                            child: IndexedStack(
+                              index: _selectedIndex,
+                              children: _pages,
                             ),
                           ),
                           const MiniPlayer(),
@@ -250,7 +242,7 @@ class _MainLayoutState extends State<MainLayout>
     bool isDark,
     bool isWide,
   ) {
-    final theme = context.watch<ThemeProvider>();
+    final theme = context.read<ThemeProvider>();
 
     return Container(
       width: isWide ? 84 : 68,

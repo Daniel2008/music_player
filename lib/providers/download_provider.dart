@@ -72,9 +72,13 @@ class DownloadTask {
 /// 下载管理器
 class DownloadProvider extends ChangeNotifier {
   GdMusicApiClient _gdApi;
+  final bool _ownsApi;
 
   // 下载任务列表
   final Map<String, DownloadTask> _tasks = {};
+
+  // 用于 downloadTrack 的完成通知
+  final Map<String, Completer<String?>> _trackCompleters = {};
 
   // 下载队列（等待中的任务 ID）
   final List<String> _queue = [];
@@ -94,8 +98,12 @@ class DownloadProvider extends ChangeNotifier {
   // 默认音质
   String defaultQuality = '320';
 
+  // 最大保留任务数，超限时自动清理已完成/失败/取消的任务
+  static const int _maxTaskCount = 200;
+
   DownloadProvider({GdMusicApiClient? gdApi})
-    : _gdApi = gdApi ?? GdMusicApiClient();
+    : _gdApi = gdApi ?? GdMusicApiClient(),
+      _ownsApi = gdApi == null;
 
   // Getters
   List<DownloadTask> get allTasks => _tasks.values.toList();
@@ -175,6 +183,7 @@ class DownloadProvider extends ChangeNotifier {
 
     _tasks[trackKey] = task;
     _queue.add(trackKey);
+    _pruneTasks();
     notifyListeners();
 
     if (startImmediately && autoStartDownload) {
@@ -202,6 +211,24 @@ class DownloadProvider extends ChangeNotifier {
     }
     _processQueue();
     return tasks;
+  }
+
+  /// 自动清理超出上限的已完成/失败/取消任务，防止内存泄漏
+  void _pruneTasks() {
+    if (_tasks.length <= _maxTaskCount) return;
+    final terminalStatuses = {
+      DownloadStatus.completed,
+      DownloadStatus.failed,
+      DownloadStatus.cancelled,
+    };
+    final terminal = _tasks.entries
+        .where((e) => terminalStatuses.contains(e.value.status))
+        .toList()
+      ..sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
+    final toRemove = _tasks.length - _maxTaskCount;
+    for (var i = 0; i < toRemove && i < terminal.length; i++) {
+      _tasks.remove(terminal[i].key);
+    }
   }
 
   /// 处理下载队列
@@ -323,6 +350,12 @@ class DownloadProvider extends ChangeNotifier {
       _activeDownloads--;
       notifyListeners();
       _processQueue();
+      final completer = _trackCompleters.remove(task.id);
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(task.status == DownloadStatus.completed
+            ? task.savePath
+            : null);
+      }
     }
   }
 
@@ -429,16 +462,13 @@ class DownloadProvider extends ChangeNotifier {
     final task = await addDownload(item, quality: br);
     if (task == null) return null;
 
-    // 等待下载完成
-    while (task.status == DownloadStatus.pending ||
-        task.status == DownloadStatus.downloading) {
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
+    if (task.status == DownloadStatus.completed) return task.savePath;
+    if (task.status != DownloadStatus.pending &&
+        task.status != DownloadStatus.downloading) return null;
 
-    if (task.status == DownloadStatus.completed) {
-      return task.savePath;
-    }
-    return null;
+    final completer = Completer<String?>();
+    _trackCompleters[task.id] = completer;
+    return completer.future;
   }
 
   /// 获取下载目录（如果未设置则使用系统下载目录）
@@ -461,13 +491,16 @@ class DownloadProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    // 取消所有正在进行的下载
     for (final task in _tasks.values) {
       if (task.status == DownloadStatus.downloading) {
         task.cancel();
       }
     }
-    _gdApi.close();
+    for (final c in _trackCompleters.values) {
+      if (!c.isCompleted) c.complete(null);
+    }
+    _trackCompleters.clear();
+    if (_ownsApi) _gdApi.close();
     super.dispose();
   }
 }

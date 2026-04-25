@@ -24,7 +24,9 @@ class Hotkeys {
           p.pause();
         } else {
           final current = playlist.current;
-          if (current != null && p.duration == Duration.zero) {
+          if (current != null &&
+              current.path.isEmpty &&
+              p.duration == Duration.zero) {
             await p.playTrackSmart(
               current,
               playlistProvider: playlist,

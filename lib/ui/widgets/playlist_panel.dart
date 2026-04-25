@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../models/track.dart';
 
 /// 简化版播放列表面板，用于 PlayerPage
 class PlaylistPanel extends StatefulWidget {
@@ -296,7 +297,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
 
 /// 播放列表中的单个曲目条目
 class _PlaylistTrackTile extends StatelessWidget {
-  final dynamic track;
+  final Track track;
   final int index;
   final bool isPlaying;
   final bool isDark;

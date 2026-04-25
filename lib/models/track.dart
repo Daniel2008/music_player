@@ -1,12 +1,12 @@
 import 'package:uuid/uuid.dart';
 import '../services/gd_music_api.dart';
 
-/// Sentinel 值，用于 copyWith 区分「不传参」和「传 null」
 const Object _sentinel = Object();
 
 enum TrackKind { local, remote }
 
 class Track {
+  static const _uuid = Uuid();
   final String id;
   final String title;
   final String path;
@@ -36,7 +36,7 @@ class Track {
     this.remoteTrackId,
     this.remoteLyricId,
     this.lyricKey,
-  }) : id = id ?? const Uuid().v4();
+  }) : id = id ?? _uuid.v4();
 
   bool get isRemote => kind == TrackKind.remote;
 
