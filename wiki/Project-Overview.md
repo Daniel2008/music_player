@@ -92,8 +92,8 @@ music_player/
 
 ## 版本信息
 
-- **当前版本**：1.0.0
-- **Flutter 版本**：SDK ^3.10.1
+- **当前版本**：1.2.0+2
+- **Flutter 版本**：SDK >=3.41.0（Dart ^3.11.0）
 - **支持平台**：Windows、macOS、Linux
 
 ## 许可证

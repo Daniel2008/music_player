@@ -16,7 +16,7 @@
 ### 必需工具
 
 1. **Flutter SDK**
-   - 版本：3.10.1 或更高
+   - 版本：3.41.0 或更高（Dart 3.11+）
    - 安装方法：参见 [快速入门](./Quick-Start.md)
 
 2. **IDE**（选择其一）
@@ -603,7 +603,7 @@ jobs:
     - uses: actions/checkout@v2
     - uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.10.1'
+        flutter-version: '3.41.0'
     
     - run: flutter pub get
     - run: flutter analyze

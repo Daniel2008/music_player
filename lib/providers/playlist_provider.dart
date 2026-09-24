@@ -1,27 +1,33 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
 import '../models/playlist.dart';
 import '../models/track.dart';
+import '../services/storage_service.dart';
 
 /// 播放模式枚举
 enum PlayMode {
   sequence, // 顺序播放（播完最后一首停止）
-  loop,     // 列表循环
-  single,   // 单曲循环
-  shuffle,  // 随机播放
+  loop, // 列表循环
+  single, // 单曲循环
+  shuffle, // 随机播放
 }
 
 class PlaylistProvider extends ChangeNotifier {
+  PlaylistProvider({Playlist? initialPlaylist})
+    : playlist = initialPlaylist ?? Playlist(name: '默认播放列表') {
+    ready = loadPlaylist();
+  }
   final Playlist playlist;
   static const String _storageKey = 'saved_playlist';
   static const int _maxTracks = 500;
+  static const int _schemaVersion = 1;
   final Random _random = Random();
   Timer? _saveDebounce;
+  late final Future<void> ready;
 
   PlayMode _playMode = PlayMode.loop;
   PlayMode get playMode => _playMode;
@@ -33,13 +39,10 @@ class PlaylistProvider extends ChangeNotifier {
 
   /// 循环切换播放模式
   void cyclePlayMode() {
-    final modes = PlayMode.values;
+    const modes = PlayMode.values;
     final nextIndex = (modes.indexOf(_playMode) + 1) % modes.length;
     setPlayMode(modes[nextIndex]);
   }
-
-  PlaylistProvider({Playlist? initialPlaylist})
-    : playlist = initialPlaylist ?? Playlist(name: '默认播放列表');
 
   Track? get current => playlist.current;
   bool get isEmpty => playlist.isEmpty;
@@ -47,9 +50,7 @@ class PlaylistProvider extends ChangeNotifier {
   List<Track> get tracks => playlist.tracks;
 
   /// 初始化并加载保存的播放列表
-  Future<void> init() async {
-    await loadPlaylist();
-  }
+  Future<void> init() => ready;
 
   void addTrack(Track track) {
     if (playlist.tracks.length >= _maxTracks) return;
@@ -68,8 +69,18 @@ class PlaylistProvider extends ChangeNotifier {
 
   void removeTrack(int index) {
     if (index < 0 || index >= playlist.tracks.length) return;
+    final oldCurrentIndex = playlist.currentIndex;
     playlist.tracks.removeAt(index);
-    if (playlist.currentIndex >= playlist.tracks.length) {
+    if (playlist.tracks.isEmpty) {
+      playlist.currentIndex = -1;
+    } else if (index < oldCurrentIndex) {
+      playlist.currentIndex = oldCurrentIndex - 1;
+    } else if (index == oldCurrentIndex) {
+      playlist.currentIndex = oldCurrentIndex.clamp(
+        0,
+        playlist.tracks.length - 1,
+      );
+    } else if (oldCurrentIndex >= playlist.tracks.length) {
       playlist.currentIndex = playlist.tracks.length - 1;
     }
     notifyListeners();
@@ -153,7 +164,6 @@ class PlaylistProvider extends ChangeNotifier {
 
   /// 拖拽排序
   void reorderTrack(int oldIndex, int newIndex) {
-    if (oldIndex < newIndex) newIndex -= 1;
     final track = playlist.tracks.removeAt(oldIndex);
     playlist.tracks.insert(newIndex, track);
     // 如果当前播放的曲目被移动了，更新索引
@@ -206,7 +216,7 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> addFiles() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.audio,
       allowMultiple: true,
     );
@@ -224,7 +234,7 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> addFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath();
+    final result = await FilePicker.getDirectoryPath();
 
     if (result != null) {
       final directory = Directory(result);
@@ -256,6 +266,7 @@ class PlaylistProvider extends ChangeNotifier {
       _savePlaylist();
       return existingIndex;
     }
+    if (playlist.tracks.length >= _maxTracks) return -1;
     playlist.tracks.add(track);
     playlist.currentIndex = playlist.tracks.length - 1;
     notifyListeners();
@@ -265,12 +276,32 @@ class PlaylistProvider extends ChangeNotifier {
 
   bool _isAudioFile(String path) {
     final audioExtensions = [
-      '.mp3', '.wav', '.aac', '.flac', '.ogg', '.wma', '.m4a', '.opus',
+      '.mp3',
+      '.wav',
+      '.aac',
+      '.flac',
+      '.ogg',
+      '.wma',
+      '.m4a',
+      '.opus',
     ];
     final dotIndex = path.lastIndexOf('.');
     if (dotIndex <= 0) return false;
     final extension = path.toLowerCase().substring(dotIndex);
     return audioExtensions.contains(extension);
+  }
+
+  /// 路径白名单校验：path 必须在 baseDir 之下（防 ../ 越权）
+  bool _isWithinDir(String path, String baseDir) {
+    try {
+      final resolved = p.canonicalize(path);
+      final base = baseDir.endsWith(p.separator)
+          ? baseDir
+          : '$baseDir${p.separator}';
+      return resolved == baseDir || resolved.startsWith(base);
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 保存播放列表到本地存储（防抖动，避免过于频繁的磁盘写入）
@@ -280,50 +311,128 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> _doSavePlaylist() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final tracksJson = playlist.tracks.map((t) => t.toJson()).toList();
-      final data = {
+    await StorageService.instance.writeJsonFile(
+      fileName: _storageKey,
+      currentSchemaVersion: _schemaVersion,
+      encode: () => {
         'name': playlist.name,
         'currentIndex': playlist.currentIndex,
-        'tracks': tracksJson,
-      };
-      await prefs.setString(_storageKey, jsonEncode(data));
-    } catch (e) {
-      debugPrint('保存播放列表失败: $e');
-    }
+        'tracks': playlist.tracks.map((t) => t.toJson()).toList(),
+      },
+    );
+  }
+
+  Future<void> flush() async {
+    _saveDebounce?.cancel();
+    await _doSavePlaylist();
   }
 
   /// 从本地存储加载播放列表
   Future<void> loadPlaylist() async {
+    final result = await StorageService.instance
+        .readJsonFile<Map<String, dynamic>>(
+          fileName: _storageKey,
+          currentSchemaVersion: _schemaVersion,
+          decode: (raw, _) {
+            if (raw is! Map<String, dynamic>) return null;
+            return raw;
+          },
+        );
+    if (result == null) return;
+
+    final tracksJson = result['tracks'] as List<dynamic>? ?? [];
+    final currentIndex = result['currentIndex'] as int? ?? -1;
+
+    final tracks = tracksJson
+        .whereType<Map>()
+        .map((j) => Track.fromJson(j.cast<String, dynamic>()))
+        .whereType<Track>()
+        .toList();
+
+    playlist.tracks.clear();
+    playlist.tracks.addAll(tracks);
+    playlist.currentIndex = currentIndex.clamp(-1, tracks.length - 1);
+    notifyListeners();
+  }
+
+  /// 从 M3U 文件导入播放列表
+  Future<void> importM3u() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString(_storageKey);
-      if (jsonStr == null || jsonStr.isEmpty) return;
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['m3u', 'm3u8'],
+      );
+      if (result == null || result.files.isEmpty) return;
 
-      final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final tracksJson = data['tracks'] as List<dynamic>? ?? [];
-      final currentIndex = data['currentIndex'] as int? ?? -1;
+      final m3uFilePath = result.files.single.path!;
+      final file = File(m3uFilePath);
+      final m3uDir = p.dirname(m3uFilePath);
+      // 规范化 m3u 所在目录，做路径白名单基线（防止 ../ 越权访问系统盘/敏感目录）
+      final m3uDirReal = p.canonicalize(m3uDir);
+      final lines = await file.readAsLines();
+      final imported = <Track>[];
 
-      final tracks = tracksJson
-          .map((json) => Track.fromJson(json as Map<String, dynamic>))
-          .whereType<Track>()
-          .toList();
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
 
-      playlist.tracks.clear();
-      playlist.tracks.addAll(tracks);
-      playlist.currentIndex = currentIndex.clamp(-1, tracks.length - 1);
-      notifyListeners();
+        // 确定音频文件的绝对路径
+        final absolutePath = p.isAbsolute(trimmed)
+            ? p.normalize(trimmed)
+            : p.normalize(p.join(m3uDir, trimmed));
+
+        // 路径白名单：必须解析到 m3u 所在目录内
+        if (!_isWithinDir(absolutePath, m3uDirReal)) {
+          debugPrint('跳过越权路径: $absolutePath');
+          continue;
+        }
+
+        final trackFile = File(absolutePath);
+        if (await trackFile.exists() && _isAudioFile(absolutePath)) {
+          final fileName = p.basename(absolutePath);
+          final dotIndex = fileName.lastIndexOf('.');
+          final title = dotIndex > 0
+              ? fileName.substring(0, dotIndex)
+              : fileName;
+          imported.add(Track(title: title, path: absolutePath));
+        }
+      }
+
+      if (imported.isNotEmpty) addAll(imported);
     } catch (e) {
-      debugPrint('加载播放列表失败: $e');
+      debugPrint('导入 M3U 失败: $e');
+    }
+  }
+
+  /// 导出当前播放列表为 M3U 文件
+  Future<void> exportM3u() async {
+    try {
+      final result = await FilePicker.saveFile(
+        dialogTitle: '导出播放列表',
+        fileName: '${playlist.name}.m3u',
+        type: FileType.custom,
+        allowedExtensions: ['m3u'],
+      );
+      if (result == null) return;
+
+      final buffer = StringBuffer();
+      buffer.writeln('#EXTM3U');
+      buffer.writeln('#PLAYLIST:${playlist.name}');
+
+      for (final track in playlist.tracks) {
+        buffer.writeln(track.path);
+      }
+
+      await File(result).writeAsString(buffer.toString());
+    } catch (e) {
+      debugPrint('导出 M3U 失败: $e');
     }
   }
 
   @override
   void dispose() {
-    _saveDebounce?.cancel();
-    // 确保 dispose 前立即保存一次
-    _doSavePlaylist();
+    // 触发关闭前保存；应用生命周期可调用 flush() 等待完成。
+    unawaited(flush());
     super.dispose();
   }
 }

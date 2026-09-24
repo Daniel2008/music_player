@@ -1,37 +1,36 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
+import '../services/storage_service.dart';
 
 class HistoryProvider extends ChangeNotifier {
+  HistoryProvider() {
+    ready = _loadHistory();
+  }
   final List<Track> _history = [];
   static const int _maxHistoryItems = 100;
   static const String _fileName = 'play_history.json';
+  static const int _schemaVersion = 1;
   Timer? _saveDebounce;
+  late final Future<void> ready;
 
   List<Track> get history => _history;
   bool get isEmpty => _history.isEmpty;
-
-  HistoryProvider() {
-    _loadHistory();
-  }
 
   /// 添加一首歌曲到历史记录
   /// 如果歌曲已存在，会将其移到最前面
   void addTrack(Track track) {
     // 移除已存在的相同歌曲
     _history.removeWhere((item) => item.id == track.id);
-    
+
     // 添加到历史记录开头
     _history.insert(0, track);
-    
+
     // 如果超过最大限制，删除最旧的记录
     if (_history.length > _maxHistoryItems) {
       _history.removeLast();
     }
-    
+
     notifyListeners();
     _saveHistory();
   }
@@ -59,11 +58,6 @@ class HistoryProvider extends ChangeNotifier {
 
   // ── 持久化 ──
 
-  Future<File> _getFile() async {
-    final dir = await getApplicationSupportDirectory();
-    return File('${dir.path}/$_fileName');
-  }
-
   /// 防抖保存，避免频繁写盘
   void _saveHistory() {
     _saveDebounce?.cancel();
@@ -71,38 +65,41 @@ class HistoryProvider extends ChangeNotifier {
   }
 
   Future<void> _doSave() async {
-    try {
-      final file = await _getFile();
-      final jsonData = _history.map((t) => t.toJson()).toList();
-      await file.writeAsString(jsonEncode(jsonData));
-    } catch (e) {
-      debugPrint('保存播放历史失败: $e');
-    }
+    await StorageService.instance.writeJsonFile(
+      fileName: _fileName,
+      currentSchemaVersion: _schemaVersion,
+      encode: () => _history.map((t) => t.toJson()).toList(),
+    );
   }
 
   Future<void> _loadHistory() async {
-    try {
-      final file = await _getFile();
-      if (await file.exists()) {
-        final contents = await file.readAsString();
-        final List<dynamic> jsonData = jsonDecode(contents);
-        _history.clear();
-        for (final item in jsonData) {
-          final track = Track.fromJson(item as Map<String, dynamic>);
-          if (track != null) {
-            _history.add(track);
-          }
-        }
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('加载播放历史失败: $e');
+    final result = await StorageService.instance.readJsonFile<List<Track>>(
+      fileName: _fileName,
+      currentSchemaVersion: _schemaVersion,
+      decode: (raw, _) {
+        if (raw is! List) return null;
+        return raw
+            .whereType<Map>()
+            .map((e) => Track.fromJson(e.cast<String, dynamic>()))
+            .whereType<Track>()
+            .toList();
+      },
+    );
+    if (result != null) {
+      _history.clear();
+      _history.addAll(result);
+      notifyListeners();
     }
+  }
+
+  Future<void> flush() async {
+    _saveDebounce?.cancel();
+    await _doSave();
   }
 
   @override
   void dispose() {
-    _saveDebounce?.cancel();
+    unawaited(flush());
     super.dispose();
   }
 }

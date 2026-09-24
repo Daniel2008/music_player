@@ -10,7 +10,7 @@
 - **磁盘空间**：至少 500MB 可用空间
 
 ### 开发环境
-- **Flutter SDK**：3.10.1 或更高版本
+- **Flutter SDK**：3.41.0 或更高版本（Dart 3.11+）
 - **Dart SDK**：随 Flutter 自动安装
 - **IDE**：推荐使用 VS Code、Android Studio 或 IntelliJ IDEA
 
@@ -45,10 +45,10 @@ flutter doctor
 ### Linux
 ```bash
 # 1. 下载 Flutter SDK
-wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.1-stable.tar.xz
+wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.41.0-stable.tar.xz
 
 # 2. 解压
-tar xf flutter_linux_3.10.1-stable.tar.xz
+tar xf flutter_linux_3.41.0-stable.tar.xz
 
 # 3. 添加到 PATH
 echo 'export PATH="$PATH:`pwd`/flutter/bin"' >> ~/.bashrc

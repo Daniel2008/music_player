@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../models/track.dart';
+import 'app_surfaces.dart';
 
 /// 简化版播放列表面板，用于 PlayerPage
 class PlaylistPanel extends StatefulWidget {
@@ -17,8 +18,8 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
   String? _lastScrolledTrackId;
   bool _userJustClicked = false;
 
-  /// itemExtent — 让 ReorderableListView 强制每项高度 = 56 px
-  static const double _itemExtent = 56.0;
+  /// itemExtent — 为双行文本和拖拽操作保留稳定的 60 px 行高
+  static const double _itemExtent = 60.0;
 
   @override
   void dispose() {
@@ -38,8 +39,10 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
       final viewportHeight = _scrollController.position.viewportDimension;
 
       final centeredOffset =
-          (targetOffset - viewportHeight / 2 + _itemExtent / 2)
-              .clamp(0.0, maxOffset);
+          (targetOffset - viewportHeight / 2 + _itemExtent / 2).clamp(
+            0.0,
+            maxOffset,
+          );
 
       // 避免无效滚动
       if ((centeredOffset - _scrollController.offset).abs() < 2.0) return;
@@ -62,7 +65,9 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
         playlistProvider.currentIndex < tracks.length;
     final current = hasValidIndex ? playlistProvider.current : null;
     final scheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final playerIsPlaying = context.select<PlayerProvider, bool>(
+      (provider) => provider.isPlaying,
+    );
 
     // 自动滚动 — 只要曲目 ID 变了就触发
     if (hasValidIndex && !_userJustClicked && current != null) {
@@ -74,7 +79,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
     _userJustClicked = false;
 
     if (tracks.isEmpty) {
-      return _buildEmptyState(playlistProvider, scheme);
+      return _buildCompactEmptyState(playlistProvider);
     }
 
     return Column(
@@ -85,22 +90,26 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
             scrollController: _scrollController,
             itemCount: tracks.length,
             itemExtent: _itemExtent,
-            onReorder: playlistProvider.reorderTrack,
+            onReorderItem: playlistProvider.reorderTrack,
             proxyDecorator: (child, index, animation) {
               return AnimatedBuilder(
                 animation: animation,
                 builder: (context, child) {
                   final elevation = Tween<double>(begin: 0, end: 8)
-                      .animate(CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ))
+                      .animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOutCubic,
+                        ),
+                      )
                       .value;
                   final scale = Tween<double>(begin: 1.0, end: 1.03)
-                      .animate(CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ))
+                      .animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOutCubic,
+                        ),
+                      )
                       .value;
                   return Transform.scale(
                     scale: scale,
@@ -118,12 +127,12 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
             itemBuilder: (context, index) {
               final t = tracks[index];
               final isPlaying = current?.id == t.id;
-              return _PlaylistTrackTile(
+              return _CompactPlaylistTrackTile(
                 key: ValueKey(t.id),
                 track: t,
                 index: index,
                 isPlaying: isPlaying,
-                isDark: isDark,
+                isActive: isPlaying && playerIsPlaying,
                 onTap: () {
                   _userJustClicked = true;
                   playlistProvider.setCurrentIndex(index);
@@ -151,23 +160,26 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
     BuildContext context,
   ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(4, 0, 2, 8),
       child: Row(
         children: [
-          Text(
-            '${playlistProvider.tracks.length} 首歌曲',
-            style: TextStyle(fontSize: 12, color: scheme.outline),
+          Expanded(
+            child: AppSectionTitle(
+              title: '播放队列',
+              subtitle: '${playlistProvider.tracks.length} 首歌曲',
+            ),
           ),
-          const Spacer(),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.add, size: 20),
+            icon: const Icon(Icons.add_rounded, size: 19),
             tooltip: '添加音乐',
             onSelected: (v) {
               if (v == 'files') playlistProvider.addFiles();
               if (v == 'folder') playlistProvider.addFolder();
+              if (v == 'import') playlistProvider.importM3u();
+              if (v == 'export') playlistProvider.exportM3u();
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
+            itemBuilder: (context) => [
+              const PopupMenuItem(
                 value: 'files',
                 child: Row(
                   children: [
@@ -177,7 +189,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
                   ],
                 ),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: 'folder',
                 child: Row(
                   children: [
@@ -187,10 +199,32 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
                   ],
                 ),
               ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.file_open, size: 20),
+                    SizedBox(width: 8),
+                    Text('导入 M3U'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'export',
+                enabled: playlistProvider.tracks.isNotEmpty,
+                child: const Row(
+                  children: [
+                    Icon(Icons.save_alt, size: 20),
+                    SizedBox(width: 8),
+                    Text('导出 M3U'),
+                  ],
+                ),
+              ),
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, size: 20),
+            icon: const Icon(Icons.delete_sweep_outlined, size: 19),
             tooltip: '清空列表',
             visualDensity: VisualDensity.compact,
             onPressed: () => _confirmClear(context, playlistProvider),
@@ -200,73 +234,15 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
     );
   }
 
-  Widget _buildEmptyState(PlaylistProvider playlistProvider, ColorScheme scheme) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  scheme.primaryContainer.withValues(alpha: 0.5),
-                  scheme.tertiaryContainer.withValues(alpha: 0.3),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Icon(
-              Icons.queue_music_rounded,
-              size: 28,
-              color: scheme.primary.withValues(alpha: 0.5),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            '播放列表为空',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '添加本地音乐或搜索在线歌曲',
-            style: TextStyle(
-              color: scheme.outline.withValues(alpha: 0.6),
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FilledButton.tonalIcon(
-                onPressed: playlistProvider.addFiles,
-                icon: const Icon(Icons.audio_file, size: 18),
-                label: const Text('添加文件'),
-                style: FilledButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  textStyle: const TextStyle(fontSize: 13),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonalIcon(
-                onPressed: playlistProvider.addFolder,
-                icon: const Icon(Icons.folder_open, size: 18),
-                label: const Text('添加文件夹'),
-                style: FilledButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  textStyle: const TextStyle(fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ],
+  Widget _buildCompactEmptyState(PlaylistProvider playlistProvider) {
+    return AppEmptyState(
+      icon: Icons.queue_music_rounded,
+      title: '播放队列为空',
+      description: '添加本地文件或从在线搜索中加入歌曲。',
+      action: FilledButton.tonalIcon(
+        onPressed: playlistProvider.addFiles,
+        icon: const Icon(Icons.add_rounded, size: 18),
+        label: const Text('添加音乐'),
       ),
     );
   }
@@ -295,17 +271,86 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
   }
 }
 
-/// 播放列表中的单个曲目条目
-class _PlaylistTrackTile extends StatelessWidget {
+class _CompactPlaylistTrackTile extends StatelessWidget {
+  const _CompactPlaylistTrackTile({
+    super.key,
+    required this.track,
+    required this.index,
+    required this.isPlaying,
+    required this.isActive,
+    required this.onTap,
+    required this.onRemove,
+  });
+
   final Track track;
   final int index;
   final bool isPlaying;
-  final bool isDark;
+  final bool isActive;
   final VoidCallback onTap;
   final VoidCallback onRemove;
 
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final subtitle = track.artist == null || track.artist!.isEmpty
+        ? (track.isRemote ? '在线音乐' : '本地音乐')
+        : track.artist!;
+
+    return AppMediaRow(
+      title: track.title,
+      subtitle: subtitle,
+      selected: isPlaying,
+      onTap: onTap,
+      leading: SizedBox(
+        width: 26,
+        child: isPlaying
+            ? isActive
+                  ? _PlayingIndicator(color: scheme.primary)
+                  : Icon(Icons.pause_rounded, size: 16, color: scheme.primary)
+            : Text(
+                '${index + 1}',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 11,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: onRemove,
+            tooltip: '移除',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              Icons.close_rounded,
+              size: 16,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          ReorderableDragStartListener(
+            index: index,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                Icons.drag_indicator_rounded,
+                size: 18,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.65),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 播放列表中的单个曲目条目
+// ignore: unused_element
+class _PlaylistTrackTile extends StatelessWidget {
   const _PlaylistTrackTile({
-    super.key,
     required this.track,
     required this.index,
     required this.isPlaying,
@@ -313,6 +358,12 @@ class _PlaylistTrackTile extends StatelessWidget {
     required this.onTap,
     required this.onRemove,
   });
+  final Track track;
+  final int index;
+  final bool isPlaying;
+  final bool isDark;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -328,10 +379,7 @@ class _PlaylistTrackTile extends StatelessWidget {
             ? scheme.primaryContainer.withValues(alpha: isDark ? 0.25 : 0.35)
             : Colors.transparent,
         border: isPlaying
-            ? Border.all(
-                color: scheme.primary.withValues(alpha: 0.2),
-                width: 1,
-              )
+            ? Border.all(color: scheme.primary.withValues(alpha: 0.2), width: 1)
             : null,
       ),
       child: Material(
@@ -352,10 +400,7 @@ class _PlaylistTrackTile extends StatelessWidget {
                       : Text(
                           '${index + 1}',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: scheme.outline,
-                            fontSize: 13,
-                          ),
+                          style: TextStyle(color: scheme.outline, fontSize: 13),
                         ),
                 ),
                 const SizedBox(width: 10),
@@ -367,7 +412,9 @@ class _PlaylistTrackTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: isPlaying ? FontWeight.w600 : FontWeight.normal,
+                      fontWeight: isPlaying
+                          ? FontWeight.w600
+                          : FontWeight.normal,
                       color: isPlaying ? scheme.primary : scheme.onSurface,
                     ),
                   ),
@@ -398,9 +445,8 @@ class _PlaylistTrackTile extends StatelessWidget {
 
 /// 正在播放的呼吸动画指示器
 class _PlayingIndicator extends StatefulWidget {
-  final Color color;
-
   const _PlayingIndicator({required this.color});
+  final Color color;
 
   @override
   State<_PlayingIndicator> createState() => _PlayingIndicatorState();

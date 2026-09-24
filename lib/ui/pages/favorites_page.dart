@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../../providers/player_provider.dart';
-import '../../providers/playlist_provider.dart';
 import '../../providers/favorites_provider.dart';
+import '../../providers/playlist_provider.dart';
 import '../../providers/api_settings_provider.dart';
-import '../../models/track.dart';
+import '../../providers/player_provider.dart';
 import '../../services/gd_music_api.dart';
+import '../../models/track.dart';
+import '../../main.dart';
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({super.key});
@@ -49,14 +49,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
       children: [
         // 头部 — 毛玻璃效果
         Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: isDark
-                  ? [
-                      Colors.red.withValues(alpha: 0.08),
-                      scheme.surface,
-                    ]
+                  ? [Colors.red.withValues(alpha: 0.08), scheme.surface]
                   : [
                       Colors.red.withValues(alpha: 0.05),
                       scheme.surfaceContainerLow,
@@ -114,10 +111,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     const SizedBox(height: 2),
                     Text(
                       '${favorites.length} 首歌曲',
-                      style: TextStyle(
-                        color: scheme.outline,
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: scheme.outline, fontSize: 13),
                     ),
                   ],
                 ),
@@ -276,15 +270,14 @@ class _FavoritesPageState extends State<FavoritesPage> {
 }
 
 class _FavoriteItem extends StatefulWidget {
-  final GdSearchTrack track;
-  final int index;
-  final String quality;
-
   const _FavoriteItem({
     required this.track,
     required this.index,
     required this.quality,
   });
+  final GdSearchTrack track;
+  final int index;
+  final String quality;
 
   @override
   State<_FavoriteItem> createState() => _FavoriteItemState();
@@ -301,7 +294,10 @@ class _FavoriteItemState extends State<_FavoriteItem> {
 
     // 构建封面 URL
     final gdApi = context.read<GdMusicApiClient>();
-    final coverUrl = gdApi.buildCoverUrl(widget.track.picId, widget.track.source);
+    final coverUrl = gdApi.buildCoverUrl(
+      widget.track.picId,
+      widget.track.source,
+    );
 
     return Dismissible(
       key: ValueKey('fav_${widget.track.id}'),
@@ -353,8 +349,8 @@ class _FavoriteItemState extends State<_FavoriteItem> {
             borderRadius: BorderRadius.circular(14),
             color: _isHovered
                 ? (isDark
-                    ? Colors.white.withValues(alpha: 0.05)
-                    : scheme.primaryContainer.withValues(alpha: 0.15))
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : scheme.primaryContainer.withValues(alpha: 0.15))
                 : Colors.transparent,
             border: _isHovered
                 ? Border.all(
@@ -394,10 +390,7 @@ class _FavoriteItemState extends State<_FavoriteItem> {
                         ].where((s) => s.isNotEmpty).join(' · '),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.outline,
-                        ),
+                        style: TextStyle(fontSize: 12, color: scheme.outline),
                       ),
                     ],
                   ),
@@ -413,7 +406,8 @@ class _FavoriteItemState extends State<_FavoriteItem> {
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => favoritesProvider.toggleFavorite(widget.track),
+                          onTap: () =>
+                              favoritesProvider.toggleFavorite(widget.track),
                           borderRadius: BorderRadius.circular(20),
                           child: const Padding(
                             padding: EdgeInsets.all(8),
@@ -458,11 +452,7 @@ class _FavoriteItemState extends State<_FavoriteItem> {
         borderRadius: BorderRadius.circular(10),
         child: coverUrl != null
             ? Image(
-                image: ResizeImage(
-                  CachedNetworkImageProvider(coverUrl!),
-                  width: 48,
-                  height: 48,
-                ),
+                image: coverImageProvider(coverUrl),
                 width: 48,
                 height: 48,
                 fit: BoxFit.cover,
@@ -502,10 +492,7 @@ class _FavoriteItemState extends State<_FavoriteItem> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
-                colors: [
-                  scheme.primary,
-                  scheme.primary.withValues(alpha: 0.8),
-                ],
+                colors: [scheme.primary, scheme.primary.withValues(alpha: 0.8)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),

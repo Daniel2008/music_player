@@ -269,14 +269,14 @@ Float32List samples = _audioData.getAudioData();
 ## 技术选型
 
 ### 核心框架
-- **Flutter 3.10.1+**: 跨平台 UI 框架
-- **Dart SDK**: 编程语言
+- **Flutter 3.41.0+**: 跨平台 UI 框架
+- **Dart 3.11+**: 编程语言
 
 ### 状态管理
 - **Provider 6.1.2**: 轻量级状态管理
 
 ### 音频处理
-- **flutter_soloud 3.4.6**: 高性能音频引擎
+- **flutter_soloud 4.0.7**: 高性能音频引擎
 - ~~audioplayers~~: 已替换为 SoLoud
 - ~~ffmpeg_kit_flutter~~: 已移除
 
@@ -285,9 +285,9 @@ Float32List samples = _audioData.getAudioData();
 - **cached_network_image 3.2.3**: 图片缓存
 
 ### 平台集成
-- **window_manager 0.4.2**: 窗口管理
+- **window_manager 0.5.1**: 窗口管理
 - **hotkey_manager 0.2.3**: 全局快捷键
-- **file_picker 8.0.0**: 文件选择
+- **file_picker 11.0.2**: 文件选择
 - **path_provider 2.1.4**: 路径获取
 
 ### 持久化

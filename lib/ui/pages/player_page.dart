@@ -49,7 +49,12 @@ class _PlayerPageState extends State<PlayerPage> {
         Expanded(
           flex: _playlistExpanded ? 3 : 5,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(20, 20, _playlistExpanded ? 10 : 20, 20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              _playlistExpanded ? 10 : 20,
+              20,
+            ),
             child: Column(
               children: [
                 // 频谱卡片 — 歌词折叠后自动占满
@@ -82,7 +87,6 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-
   Widget _buildNarrowLayout(
     BuildContext context,
     ColorScheme scheme,
@@ -107,10 +111,7 @@ class _PlayerPageState extends State<PlayerPage> {
             onToggle: () => setState(() => _lyricsExpanded = !_lyricsExpanded),
             scheme: scheme,
             isDark: isDark,
-            expandedChild: SizedBox(
-              height: 220,
-              child: _buildLyricsContent(),
-            ),
+            expandedChild: SizedBox(height: 220, child: _buildLyricsContent()),
           ),
           const SizedBox(height: 12),
           // 播放列表 — 可折叠
@@ -118,13 +119,11 @@ class _PlayerPageState extends State<PlayerPage> {
             title: '播放列表',
             icon: Icons.queue_music_rounded,
             isExpanded: _playlistExpanded,
-            onToggle: () => setState(() => _playlistExpanded = !_playlistExpanded),
+            onToggle: () =>
+                setState(() => _playlistExpanded = !_playlistExpanded),
             scheme: scheme,
             isDark: isDark,
-            expandedChild: const SizedBox(
-              height: 400,
-              child: PlaylistPanel(),
-            ),
+            expandedChild: const SizedBox(height: 400, child: PlaylistPanel()),
           ),
         ],
       ),
@@ -182,10 +181,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     : Colors.white.withValues(alpha: 0.06),
                 width: 1,
               )
-            : Border.all(
-                color: Colors.black.withValues(alpha: 0.06),
-                width: 1,
-              ),
+            : Border.all(color: Colors.black.withValues(alpha: 0.06), width: 1),
         color: isDark ? const Color(0xFF16161F) : scheme.surfaceContainer,
         boxShadow: [
           if (isDark && isMain)
@@ -203,10 +199,7 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
-        child: child,
-      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(22), child: child),
     );
   }
 
@@ -245,9 +238,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     pageBuilder: (context, animation, secondaryAnimation) =>
                         MultiProvider(
                           providers: [
-                            ChangeNotifierProvider.value(
-                              value: playerProvider,
-                            ),
+                            ChangeNotifierProvider.value(value: playerProvider),
                             ChangeNotifierProvider.value(
                               value: playlistProvider,
                             ),
@@ -282,7 +273,8 @@ class _PlayerPageState extends State<PlayerPage> {
                   tooltip: _lyricsExpanded ? '收起歌词' : '展开歌词',
                   scheme: scheme,
                   isDark: isDark,
-                  onPressed: () => setState(() => _lyricsExpanded = !_lyricsExpanded),
+                  onPressed: () =>
+                      setState(() => _lyricsExpanded = !_lyricsExpanded),
                 ),
                 const SizedBox(width: 6),
                 // 播放列表折叠按钮
@@ -293,7 +285,8 @@ class _PlayerPageState extends State<PlayerPage> {
                   tooltip: _playlistExpanded ? '收起播放列表' : '展开播放列表',
                   scheme: scheme,
                   isDark: isDark,
-                  onPressed: () => setState(() => _playlistExpanded = !_playlistExpanded),
+                  onPressed: () =>
+                      setState(() => _playlistExpanded = !_playlistExpanded),
                 ),
                 const SizedBox(width: 6),
                 // 频谱样式
@@ -382,8 +375,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     Icon(
                       style.icon,
                       size: 18,
-                      color:
-                          style == _visualizerStyle ? scheme.primary : null,
+                      color: style == _visualizerStyle ? scheme.primary : null,
                     ),
                     const SizedBox(width: 12),
                     Text(
@@ -507,7 +499,8 @@ class _PlayerPageState extends State<PlayerPage> {
             title: '播放列表',
             icon: Icons.queue_music_rounded,
             isExpanded: _playlistExpanded,
-            onToggle: () => setState(() => _playlistExpanded = !_playlistExpanded),
+            onToggle: () =>
+                setState(() => _playlistExpanded = !_playlistExpanded),
             scheme: scheme,
           ),
           const Expanded(child: PlaylistPanel()),

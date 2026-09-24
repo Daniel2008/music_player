@@ -12,19 +12,6 @@ enum DownloadStatus { pending, downloading, completed, failed, cancelled }
 
 /// 下载任务
 class DownloadTask {
-  final String id;
-  final GdSearchTrack track;
-  final String quality;
-  DownloadStatus status;
-  double progress;
-  String? savePath;
-  String? error;
-  DateTime createdAt;
-  DateTime? completedAt;
-  int? fileSizeBytes;
-  int downloadedBytes;
-  http.Client? _httpClient;
-
   DownloadTask({
     required this.id,
     required this.track,
@@ -38,6 +25,21 @@ class DownloadTask {
     this.fileSizeBytes,
     this.downloadedBytes = 0,
   }) : createdAt = createdAt ?? DateTime.now();
+  final String id;
+  final GdSearchTrack track;
+  final String quality;
+  DownloadStatus status;
+  double progress;
+  String? savePath;
+  String? error;
+  DateTime createdAt;
+  DateTime? completedAt;
+  int? fileSizeBytes;
+  int downloadedBytes;
+  http.Client? _httpClient;
+  int _runGeneration = 0;
+  bool _running = false;
+  bool _cancelRequested = false;
 
   String get trackKey => '${track.source}_${track.id}';
 
@@ -63,6 +65,8 @@ class DownloadTask {
   }
 
   void cancel() {
+    _cancelRequested = true;
+    _runGeneration++;
     _httpClient?.close();
     _httpClient = null;
     status = DownloadStatus.cancelled;
@@ -71,6 +75,9 @@ class DownloadTask {
 
 /// 下载管理器
 class DownloadProvider extends ChangeNotifier {
+  DownloadProvider({GdMusicApiClient? gdApi})
+    : _gdApi = gdApi ?? GdMusicApiClient(),
+      _ownsApi = gdApi == null;
   GdMusicApiClient _gdApi;
   final bool _ownsApi;
 
@@ -101,10 +108,6 @@ class DownloadProvider extends ChangeNotifier {
   // 最大保留任务数，超限时自动清理已完成/失败/取消的任务
   static const int _maxTaskCount = 200;
 
-  DownloadProvider({GdMusicApiClient? gdApi})
-    : _gdApi = gdApi ?? GdMusicApiClient(),
-      _ownsApi = gdApi == null;
-
   // Getters
   List<DownloadTask> get allTasks => _tasks.values.toList();
 
@@ -125,6 +128,11 @@ class DownloadProvider extends ChangeNotifier {
 
   int get queueLength => _queue.length;
 
+  @visibleForTesting
+  void debugSetActiveDownloads(int value) {
+    _activeDownloads = value.clamp(0, maxConcurrentDownloads);
+  }
+
   String? get defaultDownloadPath => _defaultDownloadPath;
 
   /// 更新 API 客户端
@@ -140,9 +148,7 @@ class DownloadProvider extends ChangeNotifier {
 
   /// 选择默认下载目录
   Future<String?> selectDefaultDownloadPath() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择默认下载目录',
-    );
+    final result = await FilePicker.getDirectoryPath(dialogTitle: '选择默认下载目录');
     if (result != null) {
       _defaultDownloadPath = result;
       notifyListeners();
@@ -221,10 +227,11 @@ class DownloadProvider extends ChangeNotifier {
       DownloadStatus.failed,
       DownloadStatus.cancelled,
     };
-    final terminal = _tasks.entries
-        .where((e) => terminalStatuses.contains(e.value.status))
-        .toList()
-      ..sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
+    final terminal =
+        _tasks.entries
+            .where((e) => terminalStatuses.contains(e.value.status))
+            .toList()
+          ..sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
     final toRemove = _tasks.length - _maxTaskCount;
     for (var i = 0; i < toRemove && i < terminal.length; i++) {
       _tasks.remove(terminal[i].key);
@@ -244,6 +251,9 @@ class DownloadProvider extends ChangeNotifier {
 
   /// 开始下载任务
   Future<void> _startDownload(DownloadTask task) async {
+    final runGeneration = ++task._runGeneration;
+    task._running = true;
+    task._cancelRequested = false;
     task.status = DownloadStatus.downloading;
     _activeDownloads++;
     notifyListeners();
@@ -259,6 +269,7 @@ class DownloadProvider extends ChangeNotifier {
       if (urlInfo.url.isEmpty) {
         throw Exception('获取下载链接失败：链接为空');
       }
+      if (!_isCurrentRun(task, runGeneration)) return;
 
       // 确定保存路径
       String? savePath = task.savePath;
@@ -268,7 +279,7 @@ class DownloadProvider extends ChangeNotifier {
           savePath = path.join(_defaultDownloadPath!, task.fileName);
         } else {
           // 弹出保存对话框
-          savePath = await FilePicker.platform.saveFile(
+          savePath = await FilePicker.saveFile(
             dialogTitle: '保存音乐',
             fileName: task.fileName,
             type: FileType.custom,
@@ -279,13 +290,11 @@ class DownloadProvider extends ChangeNotifier {
 
       if (savePath == null) {
         task.status = DownloadStatus.cancelled;
-        _activeDownloads--;
-        notifyListeners();
-        _processQueue();
         return;
       }
 
       task.savePath = savePath;
+      if (!_isCurrentRun(task, runGeneration)) return;
 
       // 创建 HTTP 客户端
       task._httpClient = http.Client();
@@ -295,22 +304,26 @@ class DownloadProvider extends ChangeNotifier {
       if (response.statusCode != 200) {
         throw Exception('下载失败：HTTP ${response.statusCode}');
       }
+      if (!_isCurrentRun(task, runGeneration)) return;
 
       task.fileSizeBytes = response.contentLength;
       task.downloadedBytes = 0;
 
       // 流式写入文件，避免将整个文件缓存在内存中
       final file = File(savePath);
+      final tempFile = File('$savePath.part');
       await file.parent.create(recursive: true);
-      final sink = file.openWrite();
+      if (await tempFile.exists()) await tempFile.delete();
+      final sink = tempFile.openWrite();
       DateTime lastNotify = DateTime.now();
 
       try {
-        await for (final chunk in response.stream) {
-          if (task.status == DownloadStatus.cancelled) {
+        await for (final chunk in response.stream.timeout(
+          const Duration(seconds: 30),
+        )) {
+          if (!_isCurrentRun(task, runGeneration)) {
             await sink.close();
-            // 删除未完成的文件
-            if (await file.exists()) await file.delete();
+            if (await tempFile.exists()) await tempFile.delete();
             throw Exception('下载已取消');
           }
 
@@ -331,8 +344,19 @@ class DownloadProvider extends ChangeNotifier {
 
         await sink.flush();
         await sink.close();
+        if (!_isCurrentRun(task, runGeneration)) {
+          if (await tempFile.exists()) await tempFile.delete();
+          return;
+        }
+        if (await file.exists()) await file.delete();
+        await tempFile.rename(file.path);
       } catch (e) {
         await sink.close();
+        if (await tempFile.exists()) {
+          try {
+            await tempFile.delete();
+          } catch (_) {}
+        }
         rethrow;
       }
 
@@ -340,23 +364,33 @@ class DownloadProvider extends ChangeNotifier {
       task.progress = 1.0;
       task.completedAt = DateTime.now();
     } catch (e) {
-      if (task.status != DownloadStatus.cancelled) {
+      if (_isCurrentRun(task, runGeneration)) {
         task.status = DownloadStatus.failed;
         task.error = e.toString();
       }
     } finally {
+      task._running = false;
       task._httpClient?.close();
       task._httpClient = null;
-      _activeDownloads--;
+      _activeDownloads = (_activeDownloads - 1).clamp(0, 1 << 30);
       notifyListeners();
       _processQueue();
-      final completer = _trackCompleters.remove(task.id);
-      if (completer != null && !completer.isCompleted) {
-        completer.complete(task.status == DownloadStatus.completed
-            ? task.savePath
-            : null);
+      if (task._runGeneration == runGeneration) {
+        final completer = _trackCompleters.remove(task.id);
+        if (completer != null && !completer.isCompleted) {
+          completer.complete(
+            task.status == DownloadStatus.completed ? task.savePath : null,
+          );
+        }
       }
     }
+  }
+
+  bool _isCurrentRun(DownloadTask task, int generation) {
+    return task._runGeneration == generation &&
+        task._running &&
+        !task._cancelRequested &&
+        task.status == DownloadStatus.downloading;
   }
 
   /// 暂停/恢复下载（目前实现为取消后重新添加）
@@ -364,6 +398,7 @@ class DownloadProvider extends ChangeNotifier {
     final task = _tasks[trackKey];
     if (task != null && task.status == DownloadStatus.downloading) {
       task.cancel();
+      _completeTrackWaiter(trackKey, null);
       notifyListeners();
     }
   }
@@ -379,6 +414,7 @@ class DownloadProvider extends ChangeNotifier {
         task.status = DownloadStatus.cancelled;
         _queue.remove(trackKey);
       }
+      _completeTrackWaiter(trackKey, null);
       notifyListeners();
     }
   }
@@ -389,11 +425,12 @@ class DownloadProvider extends ChangeNotifier {
     if (task != null &&
         (task.status == DownloadStatus.failed ||
             task.status == DownloadStatus.cancelled)) {
+      if (task._running) return;
       task.status = DownloadStatus.pending;
       task.progress = 0.0;
       task.downloadedBytes = 0;
       task.error = null;
-      _queue.add(trackKey);
+      if (!_queue.contains(trackKey)) _queue.add(trackKey);
       notifyListeners();
       _processQueue();
     }
@@ -412,8 +449,8 @@ class DownloadProvider extends ChangeNotifier {
     if (task != null) {
       if (task.status == DownloadStatus.downloading) {
         task.cancel();
-        _activeDownloads--;
       }
+      _completeTrackWaiter(trackKey, null);
       _queue.remove(trackKey);
       _tasks.remove(trackKey);
       notifyListeners();
@@ -432,10 +469,11 @@ class DownloadProvider extends ChangeNotifier {
       if (task.status == DownloadStatus.downloading) {
         task.cancel();
       }
+      _completeTrackWaiter(task.id, null);
     }
     _tasks.clear();
     _queue.clear();
-    _activeDownloads = 0;
+    // 正在运行的协程会在 finally 中统一归还并发槽位。
     notifyListeners();
   }
 
@@ -464,11 +502,34 @@ class DownloadProvider extends ChangeNotifier {
 
     if (task.status == DownloadStatus.completed) return task.savePath;
     if (task.status != DownloadStatus.pending &&
-        task.status != DownloadStatus.downloading) return null;
+        task.status != DownloadStatus.downloading) {
+      return null;
+    }
+
+    final existingCompleter = _trackCompleters[task.id];
+    if (existingCompleter != null) return existingCompleter.future;
 
     final completer = Completer<String?>();
     _trackCompleters[task.id] = completer;
+    // addDownload may have yielded while a very fast task reached a terminal
+    // state. Do not leave callers waiting for a completion callback that has
+    // already happened.
+    if (task.status == DownloadStatus.completed ||
+        task.status == DownloadStatus.failed ||
+        task.status == DownloadStatus.cancelled) {
+      _trackCompleters.remove(task.id);
+      completer.complete(
+        task.status == DownloadStatus.completed ? task.savePath : null,
+      );
+    }
     return completer.future;
+  }
+
+  void _completeTrackWaiter(String taskId, String? path) {
+    final completer = _trackCompleters.remove(taskId);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(path);
+    }
   }
 
   /// 获取下载目录（如果未设置则使用系统下载目录）

@@ -156,7 +156,8 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                                 child: VisualizerView(
                                   showStyleSelector: false,
                                   fixedStyle: _currentStyle,
-                                  enableGlow: true,
+                                  enableGlow: false,
+                                  maxFps: 24,
                                 ),
                               ),
                             ),
@@ -376,56 +377,61 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
         mainAxisSize: MainAxisSize.min,
         children: [
           // 进度条
-          Row(
-            children: [
-              Text(
-                _formatDuration(player.position),
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 4,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
+          AnimatedBuilder(
+            animation: player.timelineListenable,
+            builder: (context, _) {
+              final durationMs = player.duration.inMilliseconds;
+              final positionMs = player.position.inMilliseconds;
+              return Row(
+                children: [
+                  Text(
+                    _formatDuration(player.position),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
                     ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14,
+                        ),
+                        activeTrackColor: scheme.primary,
+                        inactiveTrackColor: Colors.white.withValues(alpha: 0.2),
+                        thumbColor: Colors.white,
+                        overlayColor: scheme.primary.withValues(alpha: 0.2),
+                      ),
+                      child: Slider(
+                        value: durationMs > 0
+                            ? (positionMs / durationMs).clamp(0.0, 1.0)
+                            : 0.0,
+                        onChanged: (value) {
+                          player.seek(
+                            Duration(
+                              milliseconds: (value * durationMs).round(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    activeTrackColor: scheme.primary,
-                    inactiveTrackColor: Colors.white.withValues(alpha: 0.2),
-                    thumbColor: Colors.white,
-                    overlayColor: scheme.primary.withValues(alpha: 0.2),
                   ),
-                  child: Slider(
-                    value: player.duration.inMilliseconds > 0
-                        ? (player.position.inMilliseconds /
-                                  player.duration.inMilliseconds)
-                              .clamp(0.0, 1.0)
-                        : 0.0,
-                    onChanged: (value) {
-                      final newPosition = Duration(
-                        milliseconds: (value * player.duration.inMilliseconds)
-                            .round(),
-                      );
-                      player.seek(newPosition);
-                    },
+                  const SizedBox(width: 12),
+                  Text(
+                    _formatDuration(player.duration),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                _formatDuration(player.duration),
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontSize: 12,
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
 
           const SizedBox(height: 8),
@@ -569,7 +575,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   }
 
   void _cycleStyle() {
-    final styles = VisualizerStyle.values;
+    const styles = VisualizerStyle.values;
     final currentIndex = styles.indexOf(_currentStyle);
     final nextIndex = (currentIndex + 1) % styles.length;
     setState(() => _currentStyle = styles[nextIndex]);

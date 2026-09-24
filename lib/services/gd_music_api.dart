@@ -5,20 +5,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class GdMusicApiException implements Exception {
+  const GdMusicApiException(this.message, {this.uri});
   final String message;
   final Uri? uri;
-
-  const GdMusicApiException(this.message, {this.uri});
 
   @override
   String toString() => uri == null ? message : '$message (${uri.toString()})';
 }
 
 class GdMusicApiHttpException extends GdMusicApiException {
-  final int statusCode;
-
   const GdMusicApiHttpException({required this.statusCode, required Uri uri})
     : super('HTTP $statusCode', uri: uri);
+  final int statusCode;
 }
 
 class GdMusicApiTimeout extends GdMusicApiException {
@@ -26,15 +24,11 @@ class GdMusicApiTimeout extends GdMusicApiException {
     : super('Request timeout', uri: uri);
 }
 
-class GdSearchTrack {
-  final String id;
-  final String name;
-  final List<String> artists;
-  final String album;
-  final String? picId;
-  final String? lyricId;
-  final String source;
+class GdMusicApiCircuitOpen extends GdMusicApiException {
+  const GdMusicApiCircuitOpen() : super('客户端处于熔断状态，稍后重试');
+}
 
+class GdSearchTrack {
   const GdSearchTrack({
     required this.id,
     required this.name,
@@ -44,20 +38,6 @@ class GdSearchTrack {
     required this.lyricId,
     required this.source,
   });
-
-  String get artistText => artists.join(' / ');
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'artist': artists,
-      'album': album,
-      'pic_id': picId,
-      'lyric_id': lyricId,
-      'source': source,
-    };
-  }
 
   factory GdSearchTrack.fromJson(Map<String, dynamic> json) {
     final artistsRaw = json['artist'];
@@ -82,13 +62,30 @@ class GdSearchTrack {
       source: (json['source'] ?? '').toString(),
     );
   }
+  final String id;
+  final String name;
+  final List<String> artists;
+  final String album;
+  final String? picId;
+  final String? lyricId;
+  final String source;
+
+  String get artistText => artists.join(' / ');
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'artist': artists,
+      'album': album,
+      'pic_id': picId,
+      'lyric_id': lyricId,
+      'source': source,
+    };
+  }
 }
 
 class GdTrackUrl {
-  final String url;
-  final int? br;
-  final int? sizeKb;
-
   const GdTrackUrl({required this.url, this.br, this.sizeKb});
 
   factory GdTrackUrl.fromJson(Map<String, dynamic> json) {
@@ -102,6 +99,9 @@ class GdTrackUrl {
           : int.tryParse('${json['size']}'),
     );
   }
+  final String url;
+  final int? br;
+  final int? sizeKb;
 
   /// 获取文件大小的友好显示
   String get sizeDisplay {
@@ -121,9 +121,6 @@ class GdTrackUrl {
 }
 
 class GdLyric {
-  final String lyric;
-  final String? tlyric;
-
   const GdLyric({required this.lyric, this.tlyric});
 
   factory GdLyric.fromJson(Map<String, dynamic> json) {
@@ -132,28 +129,28 @@ class GdLyric {
       tlyric: json['tlyric']?.toString(),
     );
   }
+  final String lyric;
+  final String? tlyric;
 
   /// 是否有翻译歌词
   bool get hasTranslation => tlyric != null && tlyric!.trim().isNotEmpty;
 }
 
 class GdPicUrl {
-  final String url;
-
   const GdPicUrl({required this.url});
 
   factory GdPicUrl.fromJson(Map<String, dynamic> json) {
     return GdPicUrl(url: (json['url'] ?? '').toString());
   }
+  final String url;
 }
 
 /// 简单的内存缓存（LRU + TTL）
 class _ApiCache<K, V> {
+  _ApiCache({this.maxSize = 50, this.ttl = const Duration(minutes: 2)});
   final int maxSize;
   final Duration ttl;
   final LinkedHashMap<K, _CacheEntry<V>> _data = LinkedHashMap();
-
-  _ApiCache({this.maxSize = 50, this.ttl = const Duration(minutes: 2)});
 
   V? get(K key) {
     final entry = _data[key];
@@ -179,28 +176,41 @@ class _ApiCache<K, V> {
 }
 
 class _CacheEntry<V> {
+  const _CacheEntry(this.value, this.time);
   final V value;
   final DateTime time;
-  const _CacheEntry(this.value, this.time);
 }
 
 /// GD 音乐台 API 客户端
 ///
 /// 支持配置 API 地址、超时时间等参数
 class GdMusicApiClient {
+  GdMusicApiClient({
+    String? baseUrl,
+    http.Client? client,
+    Duration? timeout,
+    bool Function()? isCircuitBroken,
+  }) : _baseUri = Uri.parse(baseUrl ?? defaultBaseUrl),
+       _client = client ?? http.Client(),
+       _timeout = timeout ?? defaultTimeout,
+       _isCircuitBroken = isCircuitBroken;
   Uri _baseUri;
   final http.Client _client;
   Duration _timeout;
+  bool Function()? _isCircuitBroken;
 
   // 内存缓存
   final _searchCache = _ApiCache<String, List<GdSearchTrack>>(
-    maxSize: 30, ttl: Duration(minutes: 2),
+    maxSize: 15,
+    ttl: const Duration(minutes: 2),
   );
   final _urlCache = _ApiCache<String, GdTrackUrl>(
-    maxSize: 100, ttl: Duration(minutes: 10),
+    maxSize: 50,
+    ttl: const Duration(minutes: 5),
   );
   final _lyricCache = _ApiCache<String, GdLyric>(
-    maxSize: 100, ttl: Duration(minutes: 10),
+    maxSize: 50,
+    ttl: const Duration(minutes: 5),
   );
 
   /// 默认 API 地址
@@ -209,16 +219,16 @@ class GdMusicApiClient {
   /// 默认超时时间
   static const Duration defaultTimeout = Duration(seconds: 12);
 
-  GdMusicApiClient({String? baseUrl, http.Client? client, Duration? timeout})
-    : _baseUri = Uri.parse(baseUrl ?? defaultBaseUrl),
-      _client = client ?? http.Client(),
-      _timeout = timeout ?? defaultTimeout;
-
   /// 获取当前 API 基础地址
   Uri get baseUri => _baseUri;
 
   /// 获取当前超时时间
   Duration get timeout => _timeout;
+
+  /// 绑定应用级网络熔断状态。
+  void setCircuitBreaker(bool Function()? callback) {
+    _isCircuitBroken = callback;
+  }
 
   /// 更新 API 基础地址
   void updateBaseUrl(String url) {
@@ -434,6 +444,9 @@ class GdMusicApiClient {
   }
 
   Future<dynamic> _getJson(Uri uri, {int maxRetries = 2}) async {
+    if (_isCircuitBroken?.call() ?? false) {
+      throw const GdMusicApiCircuitOpen();
+    }
     int attempt = 0;
     while (true) {
       try {
@@ -452,7 +465,9 @@ class GdMusicApiClient {
 
         final body = resp.body.trim();
         try {
-          return jsonDecode(body);
+          final decoded = jsonDecode(body);
+          onRequestSuccess?.call();
+          return decoded;
         } catch (_) {
           // 格式解析错误不重试（服务器返回了非 JSON，重试也没用）
           throw FormatException(
@@ -462,7 +477,9 @@ class GdMusicApiClient {
       } on FormatException {
         rethrow; // 格式错误直接抛出
       } catch (e) {
+        if (!_isRetryable(e)) rethrow;
         attempt++;
+        onRequestFailed?.call();
         if (attempt > maxRetries) rethrow;
         // 指数退避：第1次等 500ms，第2次等 1000ms
         await Future.delayed(Duration(milliseconds: 500 * attempt));
@@ -470,7 +487,19 @@ class GdMusicApiClient {
     }
   }
 
+  bool _isRetryable(Object error) {
+    if (error is GdMusicApiCircuitOpen) return false;
+    if (error is GdMusicApiHttpException) {
+      return error.statusCode >= 500;
+    }
+    return error is GdMusicApiTimeout || error is GdMusicApiException;
+  }
+
   void close() {
     _client.close();
   }
+
+  /// 通知调用方请求失败（用于熔断）
+  void Function()? onRequestFailed;
+  void Function()? onRequestSuccess;
 }

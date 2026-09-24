@@ -12,6 +12,13 @@
 .swiftpm/
 migrate_working_dir/
 
+# Local debug / profiling artifacts
+mem_profile.json
+test_api.dart
+*.heapsnapshot
+*.cpuprofile
+.memos/
+
 # IntelliJ related
 *.iml
 *.ipr

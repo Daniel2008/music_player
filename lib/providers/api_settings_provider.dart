@@ -11,38 +11,37 @@ enum AudioQuality {
   lossless(740, '740kbps', '无损'),
   hires(999, '999kbps', 'Hi-Res');
 
+  const AudioQuality(this.bitrate, this.label, this.description);
+
   final int bitrate;
   final String label;
   final String description;
-
-  const AudioQuality(this.bitrate, this.label, this.description);
 
   String get brValue => bitrate.toString();
 }
 
 /// 音乐源配置
 class MusicSource {
-  final String id;
-  final String name;
-  final bool isStable;
-
   const MusicSource({
     required this.id,
     required this.name,
     this.isStable = false,
   });
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'isStable': isStable,
-  };
-
   factory MusicSource.fromJson(Map<String, dynamic> json) => MusicSource(
     id: json['id'] as String,
     name: json['name'] as String,
     isStable: json['isStable'] as bool? ?? false,
   );
+  final String id;
+  final String name;
+  final bool isStable;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'isStable': isStable,
+  };
 }
 
 /// 所有可用的音乐源
@@ -301,4 +300,3 @@ class ApiSettingsProvider extends ChangeNotifier {
     }
   }
 }
-

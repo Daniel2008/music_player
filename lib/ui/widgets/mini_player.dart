@@ -1,11 +1,11 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../models/track.dart';
-
+import '../../main.dart';
+import '../../providers/theme_provider.dart';
 
 /// 固定在底部的迷你播放控制栏
 class MiniPlayer extends StatefulWidget {
@@ -72,6 +72,7 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   Widget build(BuildContext context) {
     final playlistProvider = context.watch<PlaylistProvider>();
+    final playerProvider = context.read<PlayerProvider>();
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -95,48 +96,40 @@ class _MiniPlayerState extends State<MiniPlayer>
     }
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        color: isDark ? const Color(0xFF1A1A26) : scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(8),
+        color: Theme.of(context).extension<AppVisualTheme>()!.elevatedPanel,
         border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.06),
+          color: Theme.of(context).extension<AppVisualTheme>()!.border,
         ),
         boxShadow: [
           BoxShadow(
-            color: isDark
-                ? Colors.black.withValues(alpha: 0.4)
-                : Colors.black.withValues(alpha: 0.08),
-            blurRadius: 24,
+            color: scheme.shadow.withValues(alpha: isDark ? 0.32 : 0.08),
+            blurRadius: 14,
             offset: const Offset(0, -2),
           ),
-          if (isDark)
-            BoxShadow(
-              color: scheme.primary.withValues(alpha: 0.04),
-              blurRadius: 40,
-              offset: const Offset(0, -4),
-            ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           // 渐变进度条 — 仅 position/duration 变化时重绘
-          Selector<PlayerProvider, double>(
-            selector: (_, p) {
+          AnimatedBuilder(
+            animation: playerProvider.timelineListenable,
+            builder: (context, _) {
+              final p = playerProvider;
               final dur = max(1, p.duration.inMilliseconds);
-              return (p.position.inMilliseconds / dur).clamp(0.0, 1.0);
-            },
-            builder: (context, progress, _) {
+              final progress = (p.position.inMilliseconds / dur).clamp(
+                0.0,
+                1.0,
+              );
               final sliderValue = _dragValue ?? progress;
-              final p = context.read<PlayerProvider>();
               return _buildGradientProgress(context, p, sliderValue, scheme);
             },
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 11),
             child: Row(
               children: [
                 Selector<PlayerProvider, bool>(
@@ -153,10 +146,15 @@ class _MiniPlayerState extends State<MiniPlayer>
                 const SizedBox(width: 14),
                 Expanded(
                   flex: 2,
-                  child: Selector<PlayerProvider, (Duration, Duration)>(
-                    selector: (_, p) => (p.position, p.duration),
-                    builder: (context, pd, _) {
-                      return _buildTrackInfo(track, pd.$1, pd.$2, scheme);
+                  child: AnimatedBuilder(
+                    animation: playerProvider.timelineListenable,
+                    builder: (context, _) {
+                      return _buildTrackInfo(
+                        track,
+                        playerProvider.position,
+                        playerProvider.duration,
+                        scheme,
+                      );
                     },
                   ),
                 ),
@@ -164,15 +162,19 @@ class _MiniPlayerState extends State<MiniPlayer>
                   selector: (_, p) => p.isPlaying,
                   builder: (context, isPlaying, _) {
                     final p = context.read<PlayerProvider>();
-                    return _buildPlayControls(p, playlistProvider, scheme, isPlaying);
+                    return _buildPlayControls(
+                      p,
+                      playlistProvider,
+                      scheme,
+                      isPlaying,
+                    );
                   },
                 ),
                 const SizedBox(width: 8),
-                Selector<PlayerProvider, double>(
-                  selector: (_, p) => p.volume,
+                ValueListenableBuilder<double>(
+                  valueListenable: playerProvider.volumeNotifier,
                   builder: (context, volume, _) {
-                    final p = context.read<PlayerProvider>();
-                    return _buildVolumeControl(p, scheme, volume);
+                    return _buildVolumeControl(playerProvider, scheme, volume);
                   },
                 ),
               ],
@@ -191,17 +193,13 @@ class _MiniPlayerState extends State<MiniPlayer>
     PlaylistProvider playlistProvider,
   ) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: isDark
-            ? const Color(0xFF1A1A26).withValues(alpha: 0.7)
-            : scheme.surfaceContainerHigh.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        color: Theme.of(context).extension<AppVisualTheme>()!.panel,
         border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.04)
-              : Colors.black.withValues(alpha: 0.04),
+          color: Theme.of(context).extension<AppVisualTheme>()!.border,
         ),
       ),
       child: Row(
@@ -257,7 +255,9 @@ class _MiniPlayerState extends State<MiniPlayer>
           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
           activeTrackColor: scheme.primary,
-          inactiveTrackColor: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          inactiveTrackColor: scheme.surfaceContainerHighest.withValues(
+            alpha: 0.4,
+          ),
           thumbColor: scheme.primary,
           overlayColor: scheme.primary.withValues(alpha: 0.15),
           trackShape: _RoundedTrackShape(),
@@ -289,8 +289,8 @@ class _MiniPlayerState extends State<MiniPlayer>
         );
       },
       child: Container(
-        width: 52,
-        height: 52,
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
           color: scheme.primaryContainer,
           shape: BoxShape.circle,
@@ -311,18 +311,15 @@ class _MiniPlayerState extends State<MiniPlayer>
                 child: track?.artUri != null
                     ? Image(
                         key: ValueKey(track!.artUri),
-                        image: ResizeImage(
-                          CachedNetworkImageProvider(track.artUri!),
-                          width: 52,
-                          height: 52,
-                        ),
-                        width: 52,
-                        height: 52,
+                        image: coverImageProvider(track.artUri!, size: 48),
+                        width: 48,
+                        height: 48,
                         fit: BoxFit.cover,
                         errorBuilder: (ctx, err, _) =>
                             _buildAlbumPlaceholder(scheme),
-                        frameBuilder: (ctx, child, frame, _) =>
-                            frame == null ? _buildAlbumPlaceholder(scheme) : child,
+                        frameBuilder: (ctx, child, frame, _) => frame == null
+                            ? _buildAlbumPlaceholder(scheme)
+                            : child,
                       )
                     : _buildAlbumPlaceholder(scheme),
               ),
@@ -393,7 +390,7 @@ class _MiniPlayerState extends State<MiniPlayer>
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 14,
+              fontSize: 13,
               color: scheme.onSurface,
             ),
           ),
@@ -415,7 +412,8 @@ class _MiniPlayerState extends State<MiniPlayer>
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text('·',
+                child: Text(
+                  '·',
                   style: TextStyle(
                     color: scheme.outline.withValues(alpha: 0.4),
                   ),
@@ -590,19 +588,12 @@ class _MiniPlayerState extends State<MiniPlayer>
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  scheme.primary,
-                  scheme.primary.withValues(alpha: 0.8),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: scheme.primary,
               boxShadow: [
                 BoxShadow(
-                  color: scheme.primary.withValues(alpha: 0.35),
-                  blurRadius: 12,
-                  offset: const Offset(0, 3),
+                  color: scheme.primary.withValues(alpha: 0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
@@ -644,7 +635,9 @@ class _MiniPlayerState extends State<MiniPlayer>
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
               activeTrackColor: scheme.primary.withValues(alpha: 0.8),
-              inactiveTrackColor: scheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              inactiveTrackColor: scheme.surfaceContainerHighest.withValues(
+                alpha: 0.3,
+              ),
               thumbColor: scheme.primary,
               overlayColor: scheme.primary.withValues(alpha: 0.15),
             ),

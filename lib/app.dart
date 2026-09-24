@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,8 @@ import 'providers/history_provider.dart';
 import 'providers/favorites_provider.dart';
 import 'providers/api_settings_provider.dart';
 import 'services/gd_music_api.dart';
+import 'services/connectivity_service.dart';
+import 'services/smtc_service.dart';
 import 'ui/pages/main_layout.dart';
 
 class AppRoot extends StatelessWidget {
@@ -33,26 +36,26 @@ class AppRoot extends StatelessWidget {
           dispose: (_, client) => client.close(),
         ),
         ChangeNotifierProxyProvider<GdMusicApiClient, PlayerProvider>(
-          create: (ctx) => PlayerProvider(gdApi: ctx.read<GdMusicApiClient>()),
+          create: (ctx) => PlayerProvider(
+            gdApi: ctx.read<GdMusicApiClient>(),
+            shouldAutoFetchLocalLyric: () =>
+                ctx.read<ApiSettingsProvider>().autoFetchLyric,
+          ),
           update: (_, client, provider) => provider!..updateApiClient(client),
         ),
-        ChangeNotifierProvider(
-          create: (_) {
-            final playlistProvider = PlaylistProvider();
-            playlistProvider.init(); // 异步加载保存的播放列表
-            return playlistProvider;
-          },
-        ),
+        ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProxyProvider<GdMusicApiClient, SearchProvider>(
           create: (ctx) => SearchProvider(gdApi: ctx.read<GdMusicApiClient>()),
           update: (_, client, provider) => provider!,
         ),
         ChangeNotifierProxyProvider<GdMusicApiClient, DownloadProvider>(
-          create: (ctx) => DownloadProvider(gdApi: ctx.read<GdMusicApiClient>()),
+          create: (ctx) =>
+              DownloadProvider(gdApi: ctx.read<GdMusicApiClient>()),
           update: (_, client, provider) => provider!,
         ),
         ChangeNotifierProvider(create: (_) => HistoryProvider()),
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
+        ChangeNotifierProvider(create: (_) => ConnectivityService()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, theme, _) {
@@ -65,8 +68,10 @@ class AppRoot extends StatelessWidget {
             home: const _AppInitializer(),
           );
 
-          // Windows 平台禁用无障碍语义树，防止 AXTree 引擎崩溃
-          // （已知的 Flutter Windows 引擎 bug，快速重建 widget 树时会触发）
+          // 当前 Windows Flutter 引擎在页面频繁 Offstage/动画切换时可能生成
+          // 不一致的 AXTree 增量更新，并持续输出 accessibility_bridge 错误。
+          // 仅在 Windows 禁用应用级语义树，避免日志风暴和潜在引擎崩溃；
+          // macOS/Linux 保留完整无障碍语义。升级 Flutter 后应重新验证并移除。
           if (Platform.isWindows) {
             app = ExcludeSemantics(child: app);
           }
@@ -91,6 +96,7 @@ class _AppInitializerState extends State<_AppInitializer>
   bool _initialized = false;
   double _opacity = 0.0;
   late final AnimationController _pulseController;
+  SmtcService? _smtcService;
 
   @override
   void initState() {
@@ -109,6 +115,13 @@ class _AppInitializerState extends State<_AppInitializer>
   @override
   void dispose() {
     _pulseController.dispose();
+    unawaited(_smtcService?.dispose());
+    final playlist = context.read<PlaylistProvider>();
+    final history = context.read<HistoryProvider>();
+    final favorites = context.read<FavoritesProvider>();
+    unawaited(
+      Future.wait([playlist.flush(), history.flush(), favorites.flush()]),
+    );
     super.dispose();
   }
 
@@ -120,35 +133,65 @@ class _AppInitializerState extends State<_AppInitializer>
     final downloadProvider = context.read<DownloadProvider>();
     final playerProvider = context.read<PlayerProvider>();
     final playlistProvider = context.read<PlaylistProvider>();
+    final historyProvider = context.read<HistoryProvider>();
+    final connectivity = context.read<ConnectivityService>();
+    final favoritesProvider = context.read<FavoritesProvider>();
 
-    // 等待 API 设置初始化完成
     if (!apiSettings.initialized) {
       await apiSettings.init();
     }
+    await Future.wait([
+      playlistProvider.ready,
+      historyProvider.ready,
+      favoritesProvider.ready,
+    ]);
 
     if (!mounted) return;
 
-    // 一次性同步 API 配置到共享客户端
     gdApi.updateBaseUrl(apiSettings.apiBaseUrl);
     gdApi.updateTimeoutSeconds(apiSettings.requestTimeout);
-
-    // 仅同步非 API 相关的设置
     downloadProvider.defaultQuality = apiSettings.downloadQuality.brValue;
+    playerProvider.playQuality = apiSettings.playQuality.brValue;
 
-    // 同步歌词自动搜索设置
-    playerProvider.autoFetchLyricForLocal = apiSettings.autoFetchLyric;
+    // 把网络熔断器接入 API 客户端
+    connectivity.bindToApiClient(gdApi);
+
+    // 初始化 Windows SMTC（仅 Windows 生效）
+    _smtcService = SmtcService(playerProvider, playlistProvider);
+    await _smtcService!.initialize();
 
     // 注册自动下一曲回调
-    playerProvider.onTrackComplete = () {
+    final previousComplete = playerProvider.onTrackComplete;
+    playerProvider.onTrackComplete = () async {
+      previousComplete?.call();
+      // 记录到播放历史
+      final current = playlistProvider.current;
+      if (current != null) historyProvider.addTrack(current);
+
+      // 单曲循环：重新播放当前
+      if (playlistProvider.playMode == PlayMode.single && current != null) {
+        await playerProvider.playTrack(current);
+        return;
+      }
+
+      // 顺序模式到达末尾：停止
+      if (playlistProvider.playMode == PlayMode.sequence &&
+          playlistProvider.currentIndex >= playlistProvider.tracks.length - 1) {
+        return;
+      }
+
+      // 其他模式：自动切换下一首
       playlistProvider.next();
-      if (playlistProvider.current != null) {
-        playerProvider.playTrackSmart(
-          playlistProvider.current!,
+      final next = playlistProvider.current;
+      if (next != null) {
+        await playerProvider.playTrackSmart(
+          next,
           playlistProvider: playlistProvider,
         );
       }
     };
 
+    _pulseController.stop();
     setState(() {
       _initialized = true;
     });
@@ -178,31 +221,20 @@ class _AppInitializerState extends State<_AppInitializer>
                       AnimatedBuilder(
                         animation: _pulseController,
                         builder: (context, child) {
-                          final scale =
-                              1.0 + 0.08 * _pulseController.value;
-                          return Transform.scale(
-                            scale: scale,
-                            child: child,
-                          );
+                          final scale = 1.0 + 0.08 * _pulseController.value;
+                          return Transform.scale(scale: scale, child: child);
                         },
                         child: Container(
                           width: 80,
                           height: 80,
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                scheme.primary,
-                                scheme.primary.withValues(alpha: 0.7),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(20),
+                            color: scheme.primary,
+                            borderRadius: BorderRadius.circular(8),
                             boxShadow: [
                               BoxShadow(
-                                color: scheme.primary.withValues(alpha: 0.3),
-                                blurRadius: 20,
-                                offset: const Offset(0, 8),
+                                color: scheme.primary.withValues(alpha: 0.2),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
                               ),
                             ],
                           ),
@@ -220,7 +252,7 @@ class _AppInitializerState extends State<_AppInitializer>
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
                           color: scheme.onSurface,
-                          letterSpacing: 1.2,
+                          letterSpacing: 0,
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -235,10 +267,7 @@ class _AppInitializerState extends State<_AppInitializer>
                       const SizedBox(height: 16),
                       Text(
                         '正在加载...',
-                        style: TextStyle(
-                          color: scheme.outline,
-                          fontSize: 14,
-                        ),
+                        style: TextStyle(color: scheme.outline, fontSize: 14),
                       ),
                     ],
                   ),

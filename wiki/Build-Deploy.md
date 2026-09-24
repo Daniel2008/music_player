@@ -447,7 +447,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.10.1'
+          flutter-version: '3.41.0'
       - run: flutter pub get
       - run: flutter build windows --release
       - uses: actions/upload-artifact@v2
@@ -461,7 +461,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.10.1'
+          flutter-version: '3.41.0'
       - run: flutter pub get
       - run: flutter build macos --release
       - uses: actions/upload-artifact@v2
@@ -475,7 +475,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.10.1'
+          flutter-version: '3.41.0'
       - run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev

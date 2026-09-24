@@ -6,24 +6,6 @@ const Object _sentinel = Object();
 enum TrackKind { local, remote }
 
 class Track {
-  static const _uuid = Uuid();
-  final String id;
-  final String title;
-  final String path;
-  final String? artist;
-  final String? artUri;
-  final Duration? duration;
-
-  /// `local`: `path` is a local filesystem path.
-  /// `remote`: `path` is a playable URL.
-  final TrackKind kind;
-
-  /// For `remote` tracks.
-  final String? remoteSource;
-  final String? remoteTrackId;
-  final String? remoteLyricId;
-  final String? lyricKey;
-
   Track({
     String? id,
     required this.title,
@@ -37,8 +19,6 @@ class Track {
     this.remoteLyricId,
     this.lyricKey,
   }) : id = id ?? _uuid.v4();
-
-  bool get isRemote => kind == TrackKind.remote;
 
   /// 从在线搜索结果创建 Track（统一转换逻辑）
   factory Track.fromGdSearchTrack(GdSearchTrack item) {
@@ -58,6 +38,25 @@ class Track {
       lyricKey: 'gd_${item.source}_${item.lyricId ?? item.id}',
     );
   }
+  static const _uuid = Uuid();
+  final String id;
+  final String title;
+  final String path;
+  final String? artist;
+  final String? artUri;
+  final Duration? duration;
+
+  /// `local`: `path` is a local filesystem path.
+  /// `remote`: `path` is a playable URL.
+  final TrackKind kind;
+
+  /// For `remote` tracks.
+  final String? remoteSource;
+  final String? remoteTrackId;
+  final String? remoteLyricId;
+  final String? lyricKey;
+
+  bool get isRemote => kind == TrackKind.remote;
 
   /// 序列化为 JSON
   Map<String, dynamic> toJson() {
@@ -87,7 +86,9 @@ class Track {
         path: json['path'] as String? ?? '',
         artist: json['artist'] as String?,
         artUri: json['artUri'] as String?,
-        duration: durationMs != null ? Duration(milliseconds: durationMs) : null,
+        duration: durationMs != null
+            ? Duration(milliseconds: durationMs)
+            : null,
         kind: TrackKind.values[kindIndex.clamp(0, TrackKind.values.length - 1)],
         remoteSource: json['remoteSource'] as String?,
         remoteTrackId: json['remoteTrackId'] as String?,
@@ -129,9 +130,15 @@ class Track {
       artUri: artUri == _sentinel ? this.artUri : artUri as String?,
       duration: duration == _sentinel ? this.duration : duration as Duration?,
       kind: kind ?? this.kind,
-      remoteSource: remoteSource == _sentinel ? this.remoteSource : remoteSource as String?,
-      remoteTrackId: remoteTrackId == _sentinel ? this.remoteTrackId : remoteTrackId as String?,
-      remoteLyricId: remoteLyricId == _sentinel ? this.remoteLyricId : remoteLyricId as String?,
+      remoteSource: remoteSource == _sentinel
+          ? this.remoteSource
+          : remoteSource as String?,
+      remoteTrackId: remoteTrackId == _sentinel
+          ? this.remoteTrackId
+          : remoteTrackId as String?,
+      remoteLyricId: remoteLyricId == _sentinel
+          ? this.remoteLyricId
+          : remoteLyricId as String?,
       lyricKey: lyricKey == _sentinel ? this.lyricKey : lyricKey as String?,
     );
   }

@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Flutter](https://img.shields.io/badge/Flutter-3.10.1+-02569B?style=for-the-badge&logo=flutter&logoColor=white)
-![Dart](https://img.shields.io/badge/Dart-3.0+-0175C2?style=for-the-badge&logo=dart&logoColor=white)
+![Flutter](https://img.shields.io/badge/Flutter-3.41.0+-02569B?style=for-the-badge&logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-3.11+-0175C2?style=for-the-badge&logo=dart&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)
 
@@ -70,7 +70,7 @@
 
 ### 前置要求
 
-- **Flutter SDK** 3.10.1 或更高版本
+- **Flutter SDK** 3.41.0 或更高版本（Dart 3.11+）
 - **操作系统**: Windows 10/11、macOS 10.14+、Linux (Ubuntu 20.04+)
 
 ### 安装步骤
@@ -180,16 +180,16 @@ music_player/
 ## 🛠️ 技术栈
 
 ### 核心框架
-- **Flutter 3.10.1+** - 跨平台 UI 框架
-- **Dart SDK** - 编程语言
+- **Flutter 3.41.0+** - 跨平台 UI 框架
+- **Dart 3.11+** - 编程语言
 
 ### 主要依赖
-- **flutter_soloud** `^3.4.6` - 高性能音频引擎
+- **flutter_soloud** `^4.0.7` - 高性能音频引擎
 - **provider** `^6.1.2` - 状态管理
 - **http** `^1.2.2` - HTTP 客户端
-- **window_manager** `^0.4.2` - 窗口管理
+- **window_manager** `^0.5.1` - 窗口管理
 - **hotkey_manager** `^0.2.3` - 全局快捷键
-- **file_picker** `^8.0.0` - 文件选择
+- **file_picker** `^11.0.2` - 文件选择
 - **cached_network_image** `^3.2.3` - 图片缓存
 
 查看完整依赖列表: [pubspec.yaml](./pubspec.yaml)
