@@ -30,3 +30,11 @@
 - 在线能力依赖可配置的 GD 音乐台 API 地址；项目不应依赖本地明文密钥。
 - 歌词优先使用同目录同名 `.lrc`，其次使用应用支持目录缓存；在线歌词搜索属于增强能力，失败不应阻塞播放。
 - 下载能力以用户配置或默认目录保存在线曲目文件，需展示任务状态并支持取消/重试。
+
+## GitHub 交付与自动构建
+
+- GitHub 仓库：`https://github.com/Daniel2008/music_player`，默认分支为 `main`。
+- `.github/workflows/ci.yml` 在任意分支推送或手动触发时运行：Ubuntu 执行 `flutter analyze` 和全量测试，通过后 Windows 执行 release 构建并上传 14 天保留期的构建产物。
+- CI 固定 Flutter 3.41.6；播放队列排序必须使用兼容的 `onReorder` 并手动调整向下拖拽索引，不能只依赖 Flutter 3.47 才提供的 `onReorderItem`。
+- 跨平台测试中的文件路径不得硬编码 Windows `\`，应使用 `/`、`path` 包或平台路径 API。
+- 2026-09-27 推送后的 `main` 和功能分支 GitHub Actions 均通过，Windows 构建产物已成功上传。
