@@ -26,6 +26,8 @@ class PlayerProvider extends ChangeNotifier {
   AudioSource? _currentSource;
   SoundHandle? _currentHandle;
   Timer? _positionTimer;
+  StreamSubscription<StreamSoundEvent>? _soundEventSubscription;
+  bool _handlingCompletion = false;
   AudioData? _audioData;
   bool _disposed = false;
 
@@ -57,7 +59,8 @@ class PlayerProvider extends ChangeNotifier {
   List<double> _equalizerGains = const [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
 
   // 可视化只消费 FFT 前半段，紧凑为 128 个采样点以降低常驻缓冲和复制量。
-  final Float32List fftData = Float32List(128);
+  // SoLoud linear 模式的前 256 个值就是完整 FFT 频谱。
+  final Float32List fftData = Float32List(256);
   final Set<Object> _visualizerConsumers = <Object>{};
   bool _initialized = false;
 
@@ -162,6 +165,7 @@ class PlayerProvider extends ChangeNotifier {
       isPlaying = true;
       positionNotifier.value = Duration.zero;
       playError = null;
+      _listenForCompletion(loadedSource, _currentHandle!);
       _startPositionTimer();
       notifyListeners();
 
@@ -176,6 +180,7 @@ class PlayerProvider extends ChangeNotifier {
       if (myGeneration == _playGeneration) {
         playError = '播放失败: $e';
         _positionTimer?.cancel();
+        _cancelSoundEventSubscription();
         _setVisualizationEnabled(false);
         isPlaying = false;
         fftData.fillRange(0, fftData.length, 0);
@@ -200,16 +205,45 @@ class PlayerProvider extends ChangeNotifier {
       if (_currentHandle != null && isPlaying) {
         try {
           if (!_soloud.getIsValidVoiceHandle(_currentHandle!)) {
-            _handleComplete();
+            unawaited(_handleComplete(completedHandle: _currentHandle));
             return;
           }
-          positionNotifier.value = _soloud.getPosition(_currentHandle!);
+          final nextPosition = _soloud.getPosition(_currentHandle!);
+          positionNotifier.value = nextPosition;
+          final totalDuration = durationNotifier.value;
+          if (totalDuration > Duration.zero &&
+              nextPosition + const Duration(milliseconds: 80) >=
+                  totalDuration) {
+            unawaited(_handleComplete(completedHandle: _currentHandle));
+            return;
+          }
           _updateAudioData();
         } catch (e) {
           debugPrint('位置更新失败: $e');
         }
       }
     });
+  }
+
+  void _listenForCompletion(AudioSource source, SoundHandle handle) {
+    _cancelSoundEventSubscription();
+    _soundEventSubscription = source.soundEvents.listen((event) {
+      if (event.event != SoundEventType.handleIsNoMoreValid ||
+          event.handle.id != handle.id) {
+        return;
+      }
+      if (_currentSource != source || _currentHandle?.id != handle.id) return;
+      // 原生事件回调结束后再释放 source，避免在事件分发中关闭流。
+      scheduleMicrotask(() {
+        unawaited(_handleComplete(completedHandle: handle));
+      });
+    });
+  }
+
+  void _cancelSoundEventSubscription() {
+    final subscription = _soundEventSubscription;
+    _soundEventSubscription = null;
+    if (subscription != null) unawaited(subscription.cancel());
   }
 
   Future<bool> resolveAndPlayTrackUrl(
@@ -373,6 +407,7 @@ class PlayerProvider extends ChangeNotifier {
       _resolveGeneration++;
       isResolvingUrl = false;
     }
+    _cancelSoundEventSubscription();
     _positionTimer?.cancel();
     _setVisualizationEnabled(false);
     try {
@@ -453,36 +488,47 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _handleComplete() async {
-    _positionTimer?.cancel();
-    _setVisualizationEnabled(false);
+  Future<void> _handleComplete({SoundHandle? completedHandle}) async {
+    if (_disposed || _handlingCompletion) return;
 
-    // 释放已完成播放的音频资源 — 防止 native 内存泄漏
-    try {
-      if (_currentHandle != null) {
-        try {
-          await _soloud.stop(_currentHandle!);
-        } catch (_) {}
-        _currentHandle = null;
-      }
-      if (_currentSource != null) {
-        try {
-          await _soloud.disposeSource(_currentSource!);
-        } catch (_) {}
-        _currentSource = null;
-      }
-    } catch (_) {
-      _currentHandle = null;
-      _currentSource = null;
+    final currentHandle = _currentHandle;
+    if (currentHandle == null) return;
+    if (completedHandle != null && completedHandle.id != currentHandle.id) {
+      return;
     }
 
-    isPlaying = false;
-    positionNotifier.value = Duration.zero;
-    durationNotifier.value = Duration.zero;
-    fftData.fillRange(0, fftData.length, 0);
-    notifyListeners();
-    if (onTrackComplete != null && !_disposed) {
-      await onTrackComplete!.call();
+    _handlingCompletion = true;
+    _positionTimer?.cancel();
+    _cancelSoundEventSubscription();
+    _setVisualizationEnabled(false);
+
+    try {
+      // 释放已完成播放的音频资源，避免 native 内存泄漏。
+      try {
+        await _soloud.stop(currentHandle);
+      } catch (_) {}
+      _currentHandle = null;
+
+      final source = _currentSource;
+      _currentSource = null;
+      if (source != null) {
+        try {
+          await _soloud.disposeSource(source);
+        } catch (_) {}
+      }
+
+      isPlaying = false;
+      positionNotifier.value = Duration.zero;
+      durationNotifier.value = Duration.zero;
+      fftData.fillRange(0, fftData.length, 0);
+      notifyListeners();
+
+      final callback = onTrackComplete;
+      if (callback != null && !_disposed) {
+        await callback();
+      }
+    } finally {
+      _handlingCompletion = false;
     }
   }
 
@@ -495,6 +541,7 @@ class PlayerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _cancelSoundEventSubscription();
     _positionTimer?.cancel();
     _setVisualizationEnabled(false);
     _audioData?.dispose();

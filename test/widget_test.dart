@@ -204,7 +204,7 @@ void main() {
       levels: List<double>.filled(32, 1),
       peaks: List<double>.filled(32, 0),
       barCount: 32,
-      style: VisualizerStyle.gradient,
+      style: VisualizerStyle.bars,
       color: const Color(0xFF5B6ABF),
       secondaryColor: const Color(0xFF4B8FC7),
       tertiaryColor: const Color(0xFF8C63C7),

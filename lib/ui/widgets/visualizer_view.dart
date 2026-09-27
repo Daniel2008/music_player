@@ -6,6 +6,7 @@ import '../../providers/player_provider.dart';
 import 'visualizer/particle.dart';
 import 'visualizer/spectrum_painter.dart';
 import 'visualizer/visualizer_style.dart';
+import 'visualizer/visualizer_signal.dart';
 
 export 'visualizer/visualizer_style.dart'
     show VisualizerStyle, VisualizerStyleExtension;
@@ -45,27 +46,20 @@ class _VisualizerViewState extends State<VisualizerView>
   // 固定的紧凑缓冲区。Float32List 比 List<double> 显著减少堆对象与内存占用。
   static const int maxBars = 72;
   static const int maxParticles = 42;
-  static const int historyLength = 5;
+  static const int historyLength = 32;
 
-  final Float32List _levels = Float32List(maxBars);
-  final Float32List _targets = Float32List(maxBars);
-  final Float32List _peaks = Float32List(maxBars);
+  final VisualizerSignal _signal = VisualizerSignal(maxBars: maxBars);
   final List<List<double>> _history = List.generate(
     historyLength,
     (_) => Float32List(maxBars),
   );
-  final Int32List _bandStarts = Int32List(maxBars);
-  final Int32List _bandEnds = Int32List(maxBars);
-  int _mappedFftLength = 0;
-  int _mappedBarCount = 0;
   int _historyHead = 0; // 环形缓冲区头指针
+  int _historyCount = 0;
 
   int _currentBarCount = 0;
   VisualizerStyle _style = VisualizerStyle.bars;
   bool _isPlaying = false;
   bool _tickerEnabled = true;
-  double _beatIntensity = 0.0;
-  double _signalEnvelope = 0.015;
 
   // 优化的粒子系统
   final List<Particle> _particles = [];
@@ -74,7 +68,6 @@ class _VisualizerViewState extends State<VisualizerView>
   double _waveOffset = 0.0;
   final Stopwatch _frameClock = Stopwatch()..start();
   int _lastFrameMicros = 0;
-  int _historyFrame = 0;
 
   @override
   void initState() {
@@ -123,103 +116,6 @@ class _VisualizerViewState extends State<VisualizerView>
     super.dispose();
   }
 
-  void _ensureBandMapping(int fftLength) {
-    if (_mappedFftLength == fftLength && _mappedBarCount == _currentBarCount) {
-      return;
-    }
-    _mappedFftLength = fftLength;
-    _mappedBarCount = _currentBarCount;
-    final usableLength = math.max(1, fftLength);
-    for (var i = 0; i < _currentBarCount; i++) {
-      final start = (math.pow(i / _currentBarCount, 1.25) * usableLength)
-          .toInt()
-          .clamp(0, fftLength - 1);
-      final end = (math.pow((i + 1) / _currentBarCount, 1.25) * usableLength)
-          .toInt()
-          .clamp(start + 1, fftLength);
-      _bandStarts[i] = start;
-      _bandEnds[i] = end;
-    }
-  }
-
-  // 优化：直接操作固定数组，避免创建新对象
-  void _updateFromFFT(Float32List fftData, bool isPlaying) {
-    _isPlaying = isPlaying;
-
-    if (fftData.isEmpty || _currentBarCount == 0) return;
-
-    // SoLoud 返回的频谱幅度会随音源和音量变化。先估算当前帧峰值，
-    // 再用带衰减的包络做自适应增益，避免安静音源几乎不可见。
-    var framePeak = 0.0;
-    for (var i = 0; i < fftData.length; i++) {
-      final sample = fftData[i].clamp(0.0, 2.0);
-      if (sample > framePeak) framePeak = sample;
-    }
-
-    // 不要过早丢弃安静音源；不同设备返回的 FFT 绝对幅度差异很大。
-    if (framePeak < 0.00008 || !isPlaying) {
-      // 衰减模式
-      for (var i = 0; i < _currentBarCount; i++) {
-        _targets[i] = _targets[i] * 0.92;
-        if (_targets[i] < 0.001) _targets[i] = 0.0;
-      }
-      _beatIntensity *= 0.92;
-      _signalEnvelope *= 0.985;
-      return;
-    }
-
-    _signalEnvelope = framePeak > _signalEnvelope
-        ? framePeak
-        : _signalEnvelope * 0.93;
-    final noiseFloor = math.min(framePeak * 0.025, 0.003);
-    final normalizer = math.max(0.012, _signalEnvelope * 0.78);
-    final fftLength = fftData.length;
-    _ensureBandMapping(fftLength);
-    // 频段边界仅在尺寸变化时计算，热循环中不再执行 pow/toInt。
-    for (var i = 0; i < _currentBarCount; i++) {
-      final start = _bandStarts[i];
-      final end = _bandEnds[i];
-
-      // 计算区间峰值（比均值更灵敏）
-      double peak = 0.0;
-      for (var j = start; j < end && j < fftLength; j++) {
-        if (fftData[j] > peak) peak = fftData[j];
-      }
-
-      // 先相对当前帧归一化，再使用曲线压缩提升小信号。
-      final normalized = ((peak - noiseFloor) / normalizer * 1.05).clamp(
-        0.0,
-        1.0,
-      );
-      final compressed = math.pow(normalized, 0.64).clamp(0.0, 1.0);
-
-      // 高频能量天然衰减，保留低频冲击的同时给高频更多可视权重。
-      final bandProgress = _currentBarCount <= 1
-          ? 0.0
-          : i / (_currentBarCount - 1);
-      final freqWeight = 0.84 + 0.24 * math.pow(bandProgress, 0.72);
-      _targets[i] = (compressed * freqWeight * 0.90).clamp(0.0, 1.0);
-    }
-
-    // 改进的节拍检测 — 使用低频能量突变
-    double bassEnergy = 0.0;
-    final bassEnd = math.min(
-      (_currentBarCount * 0.15).toInt().clamp(1, 20),
-      _currentBarCount,
-    );
-    for (var i = 0; i < bassEnd; i++) {
-      bassEnergy += _targets[i];
-    }
-    bassEnergy /= bassEnd;
-
-    // 节拍响应更快
-    if (bassEnergy > _beatIntensity * 1.2) {
-      _beatIntensity = bassEnergy.clamp(0.0, 0.9);
-    } else {
-      _beatIntensity = _beatIntensity * 0.88 + bassEnergy * 0.12;
-    }
-  }
-
   void _tick() {
     if (!mounted || !widget.enabled || !_isPlaying || _currentBarCount == 0) {
       if (_controller.isAnimating) _controller.stop();
@@ -245,43 +141,19 @@ class _VisualizerViewState extends State<VisualizerView>
     _lastFrameMicros = elapsedMicros;
     final dt = (elapsedDelta / 1000000.0).clamp(0.016, 0.1);
 
-    _updateFromFFT(player.fftData, isPlaying);
+    _signal.process(player.fftData, isPlaying, dt);
     _waveOffset += dt * 2.0;
 
     if (currentStyle == VisualizerStyle.particles) {
-      _updateParticles(dt, _beatIntensity > 0.55);
+      _updateParticles(dt, _signal.beatIntensity > 0.55);
     } else if (_particles.isNotEmpty) {
       _particles.clear();
     }
 
-    const fallSpeed = 0.22;
-    const riseSpeed = 0.86;
-    final needsPeaks =
-        currentStyle == VisualizerStyle.bars ||
-        currentStyle == VisualizerStyle.mirroredBars;
-
-    for (var i = 0; i < _currentBarCount; i++) {
-      final diff = _targets[i] - _levels[i];
-      _levels[i] = (_levels[i] + diff * (diff > 0 ? riseSpeed : fallSpeed))
-          .clamp(0.0, 1.0);
-      if (needsPeaks) {
-        if (_levels[i] > _peaks[i]) {
-          _peaks[i] = _levels[i];
-        } else {
-          _peaks[i] *= 0.965;
-        }
-      } else {
-        _peaks[i] = 0;
-      }
-    }
-
-    // 只有 3D 样式需要历史帧，并降为隔帧写入。
-    if (_isPlaying && currentStyle == VisualizerStyle.spectrum3D) {
-      _historyFrame++;
-      if (_historyFrame.isEven) {
-        _history[_historyHead].setRange(0, _currentBarCount, _levels);
-        _historyHead = (_historyHead + 1) % historyLength;
-      }
+    if (_isPlaying && currentStyle == VisualizerStyle.waterfall) {
+      _history[_historyHead].setRange(0, _currentBarCount, _signal.levels);
+      _historyHead = (_historyHead + 1) % historyLength;
+      _historyCount = math.min(historyLength, _historyCount + 1);
     }
 
     _repaintSignal.repaint();
@@ -339,15 +211,15 @@ class _VisualizerViewState extends State<VisualizerView>
         _currentBarCount,
       );
       for (var i = 0; i < bassEnd; i++) {
-        bassLevel += _levels[i];
+        bassLevel += _signal.levels[i];
       }
       bassLevel /= bassEnd;
       for (var i = bassEnd; i < midEnd; i++) {
-        midLevel += _levels[i];
+        midLevel += _signal.levels[i];
       }
       midLevel /= (midEnd - bassEnd).clamp(1, 999);
       for (var i = midEnd; i < _currentBarCount; i++) {
-        highLevel += _levels[i];
+        highLevel += _signal.levels[i];
       }
       highLevel /= (_currentBarCount - midEnd).clamp(1, 999);
     }
@@ -401,7 +273,7 @@ class _VisualizerViewState extends State<VisualizerView>
         }
 
         targetIdx = targetIdx.clamp(0, _currentBarCount - 1);
-        final level = _levels[targetIdx];
+        final level = _signal.levels[targetIdx];
         if (level < 0.1) continue;
 
         final spawnX = targetIdx / _currentBarCount;
@@ -453,6 +325,7 @@ class _VisualizerViewState extends State<VisualizerView>
         // 只在数量变化时调整数组
         if (count != _currentBarCount) {
           _currentBarCount = count;
+          _signal.setBandCount(count);
         }
 
         return SizedBox(
@@ -465,8 +338,8 @@ class _VisualizerViewState extends State<VisualizerView>
                     size: Size.infinite,
                     painter: SpectrumPainter(
                       repaint: _repaintSignal,
-                      levels: _levels,
-                      peaks: _peaks,
+                      levels: _signal.levels,
+                      peaks: _signal.peaks,
                       barCount: _currentBarCount,
                       style: currentStyle,
                       color: scheme.primary,
@@ -477,11 +350,13 @@ class _VisualizerViewState extends State<VisualizerView>
                       particles: currentStyle == VisualizerStyle.particles
                           ? _particles
                           : const [],
-                      history: currentStyle == VisualizerStyle.spectrum3D
+                      history: currentStyle == VisualizerStyle.waterfall
                           ? _history
                           : const [],
                       historyHead: _historyHead,
-                      beatIntensity: _beatIntensity,
+                      historyCount: _historyCount,
+                      beatIntensity: _signal.beatIntensity,
+                      phase: _waveOffset,
                       enableGlow: widget.enableGlow,
                       showGuides: widget.showGuides,
                     ),

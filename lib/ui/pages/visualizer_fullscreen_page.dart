@@ -549,32 +549,45 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
               ),
             ),
           ),
-          ...VisualizerStyle.values.map((style) {
-            final isSelected = style == _currentStyle;
-            return Tooltip(
-              message: '${style.displayName} (S)',
-              child: InkWell(
-                onTap: () => setState(() => _currentStyle = style),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? scheme.primary.withValues(alpha: 0.3)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    style == _currentStyle ? Icons.check_rounded : style.icon,
-                    size: 20,
-                    color: isSelected
-                        ? scheme.primary
-                        : Colors.white.withValues(alpha: 0.6),
-                  ),
-                ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
+            child: SizedBox(
+              width: 88,
+              child: Wrap(
+                spacing: 2,
+                runSpacing: 2,
+                children: VisualizerStyle.values.map((style) {
+                  final isSelected = style == _currentStyle;
+                  return Tooltip(
+                    message: '${style.displayName} (S)',
+                    child: InkWell(
+                      onTap: () => setState(() => _currentStyle = style),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 42,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? scheme.primary.withValues(alpha: 0.3)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          style == _currentStyle
+                              ? Icons.check_rounded
+                              : style.icon,
+                          size: 18,
+                          color: isSelected
+                              ? scheme.primary
+                              : Colors.white.withValues(alpha: 0.62),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
-            );
-          }),
+            ),
+          ),
         ],
       ),
     );

@@ -337,7 +337,7 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
                 ),
         ),
         trailing: SizedBox(
-          width: 56,
+          width: 68,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -353,7 +353,7 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
                   ),
                 ),
               ),
-              const SizedBox(width: 2),
+              const SizedBox(width: 10),
               AnimatedOpacity(
                 opacity: showDragHandle ? 1 : 0,
                 duration: const Duration(milliseconds: 120),
@@ -366,7 +366,7 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
                       child: Tooltip(
                         message: '拖拽排序',
                         child: Container(
-                          width: 26,
+                          width: 28,
                           height: 30,
                           decoration: BoxDecoration(
                             color: _hovered
@@ -412,7 +412,7 @@ class _PlaylistRemoveButton extends StatelessWidget {
       onPressed: onPressed,
       tooltip: '从队列移除',
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 26, height: 30),
+      constraints: const BoxConstraints.tightFor(width: 28, height: 30),
       visualDensity: VisualDensity.compact,
       style: IconButton.styleFrom(
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,

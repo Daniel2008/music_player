@@ -163,7 +163,9 @@ class _AppInitializerState extends State<_AppInitializer>
     // 注册自动下一曲回调
     final previousComplete = playerProvider.onTrackComplete;
     playerProvider.onTrackComplete = () async {
-      previousComplete?.call();
+      if (previousComplete != null) {
+        await previousComplete();
+      }
       // 记录到播放历史
       final current = playlistProvider.current;
       if (current != null) historyProvider.addTrack(current);
