@@ -2,14 +2,15 @@
 
 <div align="center">
 
+[![Flutter CI](https://github.com/Daniel2008/music_player/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Daniel2008/music_player/actions/workflows/ci.yml)
 ![Flutter](https://img.shields.io/badge/Flutter-3.41.0+-02569B?style=for-the-badge&logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.11+-0175C2?style=for-the-badge&logo=dart&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.2.0%2B2-blue?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)
 
-一个功能强大的跨平台桌面音乐播放器，基于 Flutter 框架开发
+一个基于 Flutter 的跨平台桌面音乐播放器，支持本地/在线音乐、同步歌词、播放列表、下载管理、主题皮肤、均衡器、Windows SMTC 与实时音频可视化。
 
-[功能特性](#-功能特性) • [快速开始](#-快速开始) • [使用说明](#-使用说明) • [开发文档](#-开发文档) • [贡献指南](#-贡献指南)
+[功能特性](#-功能特性) • [快速开始](#-快速开始) • [自动构建](#-github-actions-自动构建) • [项目结构](#-项目结构) • [开发文档](#-开发文档)
 
 </div>
 
@@ -21,18 +22,18 @@
 
 <!-- 添加您的应用截图 -->
 ![主界面](./docs/main.png)
-<!-- ![深色模式](./docs/screenshots/dark-mode.png) -->
-<!-- ![播放界面](./docs/screenshots/player.png) -->
-<!-- ![搜索界面](./docs/screenshots/search.png) -->
 
 ## ✨ 功能特性
 
 ### 🎧 播放功能
-- **本地音乐播放** - 支持 MP3、FLAC、WAV、M4A、OGG 等多种格式
-- **在线音乐** - 集成网易云、QQ 音乐、酷狗、酷我等多个音乐源
-- **高品质音频** - 使用 SoLoud 引擎，低延迟高质量播放
-- **播放控制** - 播放/暂停、上一曲/下一曲、进度跳转、音量调节
+- **本地音乐播放** - 支持 MP3、WAV、AAC、FLAC、OGG、WMA、M4A、OPUS
+- **多音乐源** - 通过可配置的 GD 音乐台 API 访问多个在线音乐源
+- **稳定音乐源** - 默认展示网易云、酷我、JOOX、Bilibili
+- **扩展音乐源** - 设置页可启用 QQ 音乐、酷狗、咪咕、Tidal、Spotify、YouTube Music、Qobuz、Deezer、喜马拉雅、Apple Music 等
+- **高品质音频** - 使用 SoLoud 引擎，支持 128kbps、192kbps、320kbps、740kbps、999kbps 五档音质
+- **播放控制** - 播放/暂停、停止、上一曲/下一曲、进度跳转、音量调节
 - **播放模式** - 顺序播放、列表循环、随机播放、单曲循环
+- **播放列表** - 文件/文件夹添加、拖拽排序、M3U/M3U8 导入和 M3U 导出
 
 ### 📝 歌词系统
 - **本地歌词** - 自动识别同名 .lrc 文件
@@ -47,9 +48,9 @@
 - **响应式设计** - 适配不同屏幕尺寸
 
 ### 📊 音频可视化
-- **实时频谱** - FFT 频谱分析显示
-- **波形显示** - 音频波形可视化
-- **全屏模式** - 支持全屏可视化效果
+- **12 种样式** - 柱状、镜像柱状、曲线、点阵、圆形、波浪、粒子、火焰、雷达、环形、渐变柱、3D 频谱
+- **全屏模式** - 支持沉浸式全屏可视化
+- **均衡器** - 8 段均衡器，频率覆盖 64Hz 至 8kHz
 
 ### ⌨️ 快捷键支持
 - **全局快捷键** - 系统级媒体控制
@@ -63,8 +64,9 @@
 
 ### 📥 下载功能
 - **在线下载** - 下载在线音乐到本地
-- **多音质选择** - 支持 128k、320k、无损、Hi-Res
-- **下载管理** - 查看下载进度和状态
+- **多音质选择** - 支持 128kbps、192kbps、320kbps、740kbps 无损、999kbps Hi-Res
+- **下载管理** - 查看下载进度和状态，支持取消和失败重试
+- **并发控制** - 默认最多 3 个并发下载任务
 
 ## 🚀 快速开始
 
@@ -72,13 +74,14 @@
 
 - **Flutter SDK** 3.41.0 或更高版本（Dart 3.11+）
 - **操作系统**: Windows 10/11、macOS 10.14+、Linux (Ubuntu 20.04+)
+- **Windows 开发构建**: 需要 Rust/Cargo，因为 `smtc_windows` 使用 Cargokit
 
 ### 安装步骤
 
 1. **克隆仓库**
 
 ```bash
-git clone https://github.com/your-repo/music_player.git
+git clone https://github.com/Daniel2008/music_player.git
 cd music_player
 ```
 
@@ -114,6 +117,13 @@ flutter run -d macos
 flutter run -d linux
 ```
 
+Windows 环境可使用项目脚本先检查 Rust 和插件缓存，再启动应用：
+
+```powershell
+.\scripts\run_windows.ps1 -CheckOnly
+.\scripts\run_windows.ps1
+```
+
 ### 构建 Release 版本
 
 ```bash
@@ -127,13 +137,28 @@ flutter build macos --release
 flutter build linux --release
 ```
 
+## ✅ GitHub Actions 自动构建
+
+项目已配置 [Flutter CI](./.github/workflows/ci.yml)：
+
+- 推送到任意分支时自动运行，也支持在 Actions 页面手动触发
+- Ubuntu runner 执行 `flutter pub get`、`flutter analyze` 和全量测试
+- 分析和测试通过后，Windows runner 执行 `flutter build windows --release`
+- Windows 构建产物自动上传到对应 Actions 运行页面，保留 14 天
+- Pull Request 到 `main` 时执行相同检查
+
+查看构建状态和下载产物：
+
+- [GitHub Actions](https://github.com/Daniel2008/music_player/actions)
+- [Windows CI 工作流](https://github.com/Daniel2008/music_player/actions/workflows/ci.yml)
+
 ## 📖 使用说明
 
 ### 添加本地音乐
 
-1. 点击底部控制区的"添加歌曲"按钮
-2. 选择本地音乐文件（支持多选）
-3. 点击歌曲开始播放
+1. 从播放页或底部播放器打开播放列表面板
+2. 选择"添加文件"或"添加文件夹"
+3. 从列表中选择歌曲开始播放
 
 ### 搜索在线音乐
 
@@ -156,25 +181,37 @@ flutter build linux --release
 | `Alt+→` | 快进 5 秒 |
 | `Alt+←` | 快退 5 秒 |
 
+> 全局快捷键可能受系统权限或桌面环境限制，注册失败不会阻止应用启动。
+
 ## 🏗️ 项目结构
 
-```
+```text
 music_player/
+├── .github/workflows/      # GitHub Actions 自动构建
+├── assets/
+│   ├── branding/           # 品牌图标源文件
+│   ├── lyrics/             # 示例歌词
+│   └── skins/              # JSON 主题皮肤
+├── docs/                   # 架构、部署和使用文档
 ├── lib/
-│   ├── audio/              # 音频相关
+│   ├── audio/              # 音频辅助与转码
 │   ├── models/             # 数据模型
-│   ├── platform/           # 平台相关（快捷键等）
-│   ├── providers/          # 状态管理
-│   ├── services/           # 服务层（API 等）
-│   ├── ui/                 # 用户界面
+│   ├── platform/           # 平台能力与全局快捷键
+│   ├── providers/          # 状态管理与业务状态
+│   ├── services/           # API、存储、歌词、连接与 SMTC
+│   ├── ui/
 │   │   ├── pages/          # 页面
-│   │   └── widgets/        # 组件
+│   │   └── widgets/        # 通用组件与可视化
 │   ├── utils/              # 工具类
-│   └── main.dart           # 入口文件
-├── assets/                 # 资源文件
-├── docs/                   # 文档
-├── wiki/                   # Wiki 文档
-└── test/                   # 测试
+│   ├── app.dart            # Provider 初始化和应用根节点
+│   └── main.dart           # 程序入口与桌面窗口初始化
+├── scripts/                # 开发辅助脚本
+├── test/                   # Flutter 测试
+├── tool/                   # 图标生成工具
+├── wiki/                   # 项目 Wiki
+├── macos/                  # macOS 平台工程
+├── windows/                # Windows 平台工程
+└── linux/                  # Linux 平台工程
 ```
 
 ## 🛠️ 技术栈
@@ -184,13 +221,17 @@ music_player/
 - **Dart 3.11+** - 编程语言
 
 ### 主要依赖
-- **flutter_soloud** `^4.0.7` - 高性能音频引擎
-- **provider** `^6.1.2` - 状态管理
-- **http** `^1.2.2` - HTTP 客户端
-- **window_manager** `^0.5.1` - 窗口管理
-- **hotkey_manager** `^0.2.3` - 全局快捷键
-- **file_picker** `^11.0.2` - 文件选择
-- **cached_network_image** `^3.2.3` - 图片缓存
+- **provider** - 状态管理
+- **flutter_soloud** - 音频播放、FFT/波形和均衡器
+- **file_picker** - 文件、文件夹和 M3U 选择
+- **shared_preferences** - 轻量设置持久化
+- **path_provider** - 应用数据与下载目录
+- **hotkey_manager** - 全局快捷键
+- **window_manager** - 桌面窗口控制
+- **smtc_windows** - Windows 系统媒体控制
+- **cached_network_image** / **flutter_cache_manager** - 封面缓存
+- **google_fonts** - 字体支持
+- **url_launcher** - 打开外部链接
 
 查看完整依赖列表: [pubspec.yaml](./pubspec.yaml)
 
@@ -225,7 +266,7 @@ music_player/
 - 运行 `flutter analyze` 检查代码
 - 为新功能添加测试
 
-详见 [贡献指南](./wiki/Contributing.md)
+更完整的开发流程见 [开发指南](./wiki/Development-Guide.md)。
 
 ## 🧪 测试
 
@@ -243,14 +284,13 @@ flutter analyze
 ## 📋 待办事项
 
 - [ ] 支持更多音频格式（APE、DSD）
-- [ ] 添加均衡器功能
-- [ ] 支持播放列表导入/导出
 - [ ] 添加迷你模式窗口
 - [ ] 支持歌词编辑
 - [ ] 支持播客和电台
 - [ ] 云同步功能
 - [ ] 桌面歌词显示
 - [ ] 多语言支持
+- [ ] 增加 macOS/Linux CI 构建产物和代码签名
 
 ## 🐛 问题反馈
 
@@ -262,7 +302,7 @@ flutter analyze
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证 - 详见 [LICENSE](./LICENSE) 文件
+仓库当前未包含独立的 `LICENSE` 文件，许可证信息待维护者补充。
 
 ## 🙏 致谢
 
@@ -282,6 +322,6 @@ flutter analyze
 
 **如果这个项目对您有帮助，请给一个 ⭐ Star！**
 
-Made with ❤️ by [Daniel]
+Made with Flutter by [Daniel2008](https://github.com/Daniel2008)
 
 </div>

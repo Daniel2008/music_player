@@ -38,3 +38,4 @@
 - CI 固定 Flutter 3.41.6；播放队列排序必须使用兼容的 `onReorder` 并手动调整向下拖拽索引，不能只依赖 Flutter 3.47 才提供的 `onReorderItem`。
 - 跨平台测试中的文件路径不得硬编码 Windows `\`，应使用 `/`、`path` 包或平台路径 API。
 - 2026-09-27 推送后的 `main` 和功能分支 GitHub Actions 均通过，Windows 构建产物已成功上传。
+- `README.md` 需与仓库地址、功能实现、Actions 状态和路线图保持同步；引用本地文件前必须确认路径存在。
