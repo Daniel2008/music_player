@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../providers/theme_provider.dart';
 import 'app_surfaces.dart';
 
 class SettingsSection extends StatelessWidget {
@@ -22,13 +23,23 @@ class SettingsSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
             child: Row(
               children: [
-                Icon(
-                  icon,
-                  size: 19,
-                  color: Theme.of(context).colorScheme.primary,
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Text(
@@ -41,7 +52,7 @@ class SettingsSection extends StatelessWidget {
             ),
           ),
           ...children,
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
         ],
       ),
     );
@@ -64,11 +75,51 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(title),
-      subtitle: subtitle != null ? Text(subtitle!) : null,
-      trailing: trailing,
-      onTap: onTap,
+    final scheme = Theme.of(context).colorScheme;
+    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: visual.hover,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -80,15 +131,17 @@ class ShortcutBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final visual = Theme.of(context).extension<AppVisualTheme>()!;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.grey.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
+        color: visual.panelMuted,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: visual.border),
       ),
       child: Text(
         keys,
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
       ),
     );
   }

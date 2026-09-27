@@ -6,10 +6,10 @@
 
 ## 核心页面
 
-- 播放页 PlayerPage：展示当前播放内容、歌词、可视化和播放列表入口。
+- 播放页 PlayerWorkspacePage：上方展示实时频谱，下方展示同步歌词，右侧展示可收起播放队列；完整播放控制条固定在窗口内容区底部。
 - 搜索页 SearchPage：按关键词和音乐源搜索在线音乐，支持播放、收藏、下载。
-- 收藏页 FavoritesPage：管理在线歌曲收藏并快速播放。
-- 历史页 HistoryPage：查看和清理播放历史。
+- 收藏页 FavoritesWorkspacePage：管理在线歌曲收藏并快速播放。
+- 历史页 HistoryWorkspacePage：查看和清理播放历史。
 - 设置页 SettingsPage：配置 API 地址、默认音乐源、播放/下载音质、请求超时、可用音乐源、自动歌词、下载目录、主题皮肤等。
 - 全屏可视化页 VisualizerFullscreenPage：展示沉浸式频谱/波形可视化。
 

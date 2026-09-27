@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../widgets/visualizer_view.dart';
@@ -18,6 +19,8 @@ class VisualizerFullscreenPage extends StatefulWidget {
 
 class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     with SingleTickerProviderStateMixin {
+  static const double _bottomControlReserve = 148;
+
   bool _showControls = true;
   bool _showLyrics = true;
   Timer? _hideTimer;
@@ -84,6 +87,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final bottomSafeInset = MediaQuery.of(context).padding.bottom;
     final playlist = context.watch<PlaylistProvider>();
 
     // 安全获取当前曲目，防止索引越界
@@ -103,7 +107,10 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
             player.pause();
           } else {
             if (hasValidIndex && player.duration == Duration.zero) {
-              await player.playTrack(playlist.current!);
+              await player.playTrackSmart(
+                playlist.current!,
+                playlistProvider: playlist,
+              );
             } else {
               player.play();
             }
@@ -145,7 +152,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                       children: [
                         // 频谱可视化
                         Expanded(
-                          flex: _showLyrics ? 6 : 10,
+                          flex: _showLyrics ? 5 : 10,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 24.0,
@@ -156,8 +163,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                                 child: VisualizerView(
                                   showStyleSelector: false,
                                   fixedStyle: _currentStyle,
-                                  enableGlow: false,
-                                  maxFps: 24,
+                                  enableGlow: true,
+                                  showGuides: false,
+                                  maxFps: 30,
                                 ),
                               ),
                             ),
@@ -167,29 +175,26 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                         // 歌词区域
                         if (_showLyrics)
                           Expanded(
-                            flex: 4,
+                            flex: 5,
                             child: AnimatedOpacity(
                               duration: const Duration(milliseconds: 300),
                               opacity: _showLyrics ? 1.0 : 0.0,
                               child: Container(
-                                margin: const EdgeInsets.fromLTRB(
+                                margin: EdgeInsets.fromLTRB(
                                   24,
                                   0,
                                   24,
-                                  24,
+                                  bottomSafeInset + _bottomControlReserve,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: scheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(24),
+                                  color: Colors.black.withValues(alpha: 0.38),
+                                  borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color: scheme.outlineVariant.withValues(
-                                      alpha: 0.15,
-                                    ),
+                                    color: Colors.white.withValues(alpha: 0.12),
                                   ),
                                 ),
                                 child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(24),
+                                  borderRadius: BorderRadius.circular(9),
                                   child: const LyricView(),
                                 ),
                               ),
@@ -249,17 +254,12 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   }
 
   Widget _buildAnimatedBackground(ColorScheme scheme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment.center,
-          radius: 1.5,
-          colors: [
-            scheme.primary.withValues(alpha: 0.15),
-            scheme.secondary.withValues(alpha: 0.08),
-            Colors.black,
-          ],
-          stops: const [0.0, 0.5, 1.0],
+    return ColoredBox(
+      color: Colors.black,
+      child: CustomPaint(
+        painter: _FullscreenBackdropPainter(
+          primary: scheme.primary,
+          secondary: scheme.secondary,
         ),
       ),
     );
@@ -450,9 +450,12 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                 color: Colors.white,
                 onPressed: () async {
                   playlist.previous();
-                  // 安全检查后再播放
-                  if (hasValidIndex) {
-                    await player.playTrack(playlist.current!);
+                  final current = playlist.current;
+                  if (current != null) {
+                    await player.playTrackSmart(
+                      current,
+                      playlistProvider: playlist,
+                    );
                   }
                 },
                 tooltip: '上一曲',
@@ -505,9 +508,12 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                 color: Colors.white,
                 onPressed: () async {
                   playlist.next();
-                  // 安全检查后再播放
-                  if (hasValidIndex) {
-                    await player.playTrack(playlist.current!);
+                  final current = playlist.current;
+                  if (current != null) {
+                    await player.playTrackSmart(
+                      current,
+                      playlistProvider: playlist,
+                    );
                   }
                 },
                 tooltip: '下一曲',
@@ -559,7 +565,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    style.icon,
+                    style == _currentStyle ? Icons.check_rounded : style.icon,
                     size: 20,
                     color: isSelected
                         ? scheme.primary
@@ -580,4 +586,45 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     final nextIndex = (currentIndex + 1) % styles.length;
     setState(() => _currentStyle = styles[nextIndex]);
   }
+}
+
+class _FullscreenBackdropPainter extends CustomPainter {
+  const _FullscreenBackdropPainter({
+    required this.primary,
+    required this.secondary,
+  });
+
+  final Color primary;
+  final Color secondary;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height * 0.46);
+    final maxRadius = math.min(size.width, size.height) * 0.72;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    for (var i = 1; i <= 5; i++) {
+      final radius = maxRadius * i / 5;
+      paint.color = Color.lerp(
+        primary,
+        secondary,
+        i / 5,
+      )!.withValues(alpha: 0.035 + (5 - i) * 0.006);
+      canvas.drawCircle(center, radius, paint);
+    }
+
+    paint
+      ..color = Colors.white.withValues(alpha: 0.035)
+      ..strokeWidth = 0.7;
+    for (var i = 1; i < 8; i++) {
+      final y = size.height * i / 8;
+      canvas.drawLine(Offset(24, y), Offset(size.width - 24, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _FullscreenBackdropPainter oldDelegate) =>
+      oldDelegate.primary != primary || oldDelegate.secondary != secondary;
 }

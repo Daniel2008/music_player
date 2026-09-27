@@ -5,7 +5,7 @@ import '../../providers/playlist_provider.dart';
 import '../../models/track.dart';
 import 'app_surfaces.dart';
 
-/// 简化版播放列表面板，用于 PlayerPage
+/// 播放工作区右侧的紧凑播放列表面板。
 class PlaylistPanel extends StatefulWidget {
   const PlaylistPanel({super.key});
 
@@ -115,7 +115,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
                     scale: scale,
                     child: Material(
                       elevation: elevation,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(8),
                       shadowColor: scheme.primary.withValues(alpha: 0.3),
                       child: child,
                     ),
@@ -160,7 +160,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
     BuildContext context,
   ) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 2, 8),
+      padding: const EdgeInsets.fromLTRB(4, 0, 2, 10),
       child: Row(
         children: [
           Expanded(
@@ -271,7 +271,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
   }
 }
 
-class _CompactPlaylistTrackTile extends StatelessWidget {
+class _CompactPlaylistTrackTile extends StatefulWidget {
   const _CompactPlaylistTrackTile({
     super.key,
     required this.track,
@@ -290,59 +290,134 @@ class _CompactPlaylistTrackTile extends StatelessWidget {
   final VoidCallback onRemove;
 
   @override
+  State<_CompactPlaylistTrackTile> createState() =>
+      _CompactPlaylistTrackTileState();
+}
+
+class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final track = widget.track;
     final subtitle = track.artist == null || track.artist!.isEmpty
         ? (track.isRemote ? '在线音乐' : '本地音乐')
         : track.artist!;
+    final showRemove = _hovered;
+    final showDragHandle = _hovered || widget.isPlaying;
 
-    return AppMediaRow(
-      title: track.title,
-      subtitle: subtitle,
-      selected: isPlaying,
-      onTap: onTap,
-      leading: SizedBox(
-        width: 26,
-        child: isPlaying
-            ? isActive
-                  ? _PlayingIndicator(color: scheme.primary)
-                  : Icon(Icons.pause_rounded, size: 16, color: scheme.primary)
-            : Text(
-                '${index + 1}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 11,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AppMediaRow(
+        title: track.title,
+        subtitle: subtitle,
+        selected: widget.isPlaying,
+        onTap: widget.onTap,
+        leading: SizedBox(
+          width: 26,
+          child: widget.isPlaying
+              ? widget.isActive
+                    ? _PlayingIndicator(color: scheme.primary)
+                    : Icon(Icons.pause_rounded, size: 16, color: scheme.primary)
+              : Text(
+                  '${widget.index + 1}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+        ),
+        trailing: SizedBox(
+          width: 56,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              AnimatedOpacity(
+                opacity: showRemove ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: IgnorePointer(
+                  ignoring: !showRemove,
+                  child: _PlaylistRemoveButton(
+                    color: scheme.onSurfaceVariant,
+                    hoverColor: scheme.error,
+                    onPressed: widget.onRemove,
+                  ),
                 ),
               ),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            onPressed: onRemove,
-            tooltip: '移除',
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              Icons.close_rounded,
-              size: 16,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          ReorderableDragStartListener(
-            index: index,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(
-                Icons.drag_indicator_rounded,
-                size: 18,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.65),
+              const SizedBox(width: 2),
+              AnimatedOpacity(
+                opacity: showDragHandle ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: IgnorePointer(
+                  ignoring: !showDragHandle,
+                  child: ReorderableDragStartListener(
+                    index: widget.index,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.grab,
+                      child: Tooltip(
+                        message: '拖拽排序',
+                        child: Container(
+                          width: 26,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: _hovered
+                                ? scheme.primary.withValues(alpha: 0.08)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Icon(
+                            Icons.drag_indicator_rounded,
+                            size: 17,
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: _hovered ? 0.9 : 0.55,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _PlaylistRemoveButton extends StatelessWidget {
+  const _PlaylistRemoveButton({
+    required this.color,
+    required this.hoverColor,
+    required this.onPressed,
+  });
+
+  final Color color;
+  final Color hoverColor;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: '从队列移除',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 26, height: 30),
+      visualDensity: VisualDensity.compact,
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: color,
+        hoverColor: hoverColor.withValues(alpha: 0.1),
+        highlightColor: hoverColor.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+      icon: const Icon(Icons.close_rounded, size: 15),
     );
   }
 }
@@ -374,7 +449,7 @@ class _PlaylistTrackTile extends StatelessWidget {
       curve: Curves.easeOutCubic,
       margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         color: isPlaying
             ? scheme.primaryContainer.withValues(alpha: isDark ? 0.25 : 0.35)
             : Colors.transparent,
@@ -386,7 +461,7 @@ class _PlaylistTrackTile extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           hoverColor: scheme.primary.withValues(alpha: 0.06),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

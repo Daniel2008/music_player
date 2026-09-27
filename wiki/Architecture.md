@@ -45,15 +45,16 @@ Music Player 采用经典的分层架构，结合 Flutter 的响应式编程范�
 
 #### Pages（页面）
 - `MainLayout` - 主布局，包含导航和页面容器
-- `PlayerPage` - 播放器主页面
+- `PlayerWorkspacePage` - 播放器主工作区
 - `SearchPage` - 搜索页面
-- `FavoritesPage` - 收藏页面
+- `FavoritesWorkspacePage` - 收藏页面
+- `HistoryWorkspacePage` - 播放历史页面
 - `SettingsPage` - 设置页面
 - `VisualizerFullscreenPage` - 全屏可视化页面
 
 #### Widgets（组件）
-- `MiniPlayer` - 迷你播放器控制栏
-- `Controls` - 播放控制组件
+- `MiniPlayer`（`mini_player_v2.dart`） - 迷你播放器控制栏
+- `PlaybackControls` / `PlaybackTimeline` - 播放控制与时间轴组件
 - `PlaylistPanel` - 播放列表面板
 - `LyricView` - 歌词显示组件
 - `VisualizerView` - 可视化组件

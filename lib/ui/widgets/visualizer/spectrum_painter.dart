@@ -19,12 +19,14 @@ class SpectrumPainter extends CustomPainter {
     required this.color,
     required this.secondaryColor,
     required this.tertiaryColor,
+    required this.surfaceColor,
     required this.faintColor,
     required this.particles,
     required this.history,
     required this.historyHead,
     required this.beatIntensity,
     required this.enableGlow,
+    required this.showGuides,
   }) : super(repaint: repaint);
 
   final Listenable repaint;
@@ -35,19 +37,25 @@ class SpectrumPainter extends CustomPainter {
   final Color color;
   final Color secondaryColor;
   final Color tertiaryColor;
+  final Color surfaceColor;
   final Color faintColor;
   final List<Particle> particles;
   final List<List<double>> history;
   final int historyHead;
   final double beatIntensity;
   final bool enableGlow;
+  final bool showGuides;
 
   final Paint _paint = Paint()..isAntiAlias = true;
   final Path _path = Path();
   final Path _secondaryPath = Path();
   List<Color> _palette = const [];
+  List<Color> _paletteStops = const [];
   int _paletteCount = 0;
-  Color? _paletteColor;
+  Color? _palettePrimary;
+  Color? _paletteSecondary;
+  Color? _paletteTertiary;
+  Color? _paletteSurface;
 
   void _resetPaint() {
     _paint
@@ -63,27 +71,80 @@ class SpectrumPainter extends CustomPainter {
   }
 
   void _ensurePalette(int count) {
-    if (_paletteCount == count && _paletteColor == color) return;
+    if (_paletteCount == count &&
+        _palettePrimary == color &&
+        _paletteSecondary == secondaryColor &&
+        _paletteTertiary == tertiaryColor &&
+        _paletteSurface == surfaceColor) {
+      return;
+    }
     _paletteCount = count;
-    _paletteColor = color;
-    final base = HSLColor.fromColor(color);
+    _palettePrimary = color;
+    _paletteSecondary = secondaryColor;
+    _paletteTertiary = tertiaryColor;
+    _paletteSurface = surfaceColor;
+
+    // 主题色可能集中在相近色相，频谱会显得单薄。这里保留主色相，
+    // 用两个大跨度色相生成高饱和调色板，让低中高频颜色明显分离。
+    final isDark =
+        ThemeData.estimateBrightnessForColor(surfaceColor) == Brightness.dark;
+    final baseHue = HSLColor.fromColor(color).hue;
+    final hues = [baseHue, (baseHue + 78) % 360, (baseHue + 162) % 360];
+    final lightness = isDark ? 0.66 : 0.42;
+    _paletteStops = List<Color>.generate(
+      3,
+      (index) => HSLColor.fromAHSL(
+        1,
+        hues[index],
+        0.86,
+        index == 2 && isDark ? 0.68 : lightness,
+      ).toColor(),
+      growable: false,
+    );
     _palette = List<Color>.generate(count, (index) {
-      final shift = count <= 1 ? 0.0 : index / (count - 1) * 52 - 26;
-      return base
-          .withHue((base.hue + shift) % 360)
-          .withSaturation((base.saturation + 0.08).clamp(0.0, 1.0))
-          .toColor();
+      final progress = count <= 1 ? 0.0 : index / (count - 1);
+      if (progress < 0.5) {
+        return Color.lerp(_paletteStops[0], _paletteStops[1], progress / 0.5)!;
+      }
+      return Color.lerp(
+        _paletteStops[1],
+        _paletteStops[2],
+        (progress - 0.5) / 0.5,
+      )!;
     }, growable: false);
   }
 
-  double _level(int index, [double exponent = 0.72]) =>
+  double _level(int index, [double exponent = 0.50]) =>
       math.pow(levels[index].clamp(0.0, 1.0), exponent).toDouble();
+
+  ({double width, double left, double step}) _frequencyLayout(
+    Size size, {
+    double gap = 2.5,
+    double minWidth = 2,
+    double maxWidth = 28,
+  }) {
+    final availableWidth = math.max(
+      1.0,
+      size.width - gap * math.max(0, barCount - 1),
+    );
+    final width = (availableWidth / math.max(1, barCount)).clamp(
+      minWidth,
+      maxWidth,
+    );
+    final contentWidth = width * barCount + gap * math.max(0, barCount - 1);
+    return (
+      width: width,
+      left: math.max(0.0, (size.width - contentWidth) / 2),
+      step: width + gap,
+    );
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     if (barCount <= 0 || size.isEmpty) return;
     _resetPaint();
     _ensurePalette(barCount);
+    if (showGuides) _paintGuides(canvas, size);
 
     switch (style) {
       case VisualizerStyle.bars:
@@ -113,51 +174,89 @@ class SpectrumPainter extends CustomPainter {
     }
   }
 
+  void _paintGuides(Canvas canvas, Size size) {
+    final isCentered =
+        style == VisualizerStyle.mirroredBars || style == VisualizerStyle.wave;
+    final baseline = isCentered ? size.height / 2 : size.height - 1;
+
+    _paint
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.6
+      ..color = faintColor.withValues(alpha: 0.42);
+
+    for (final fraction in const [0.25, 0.5, 0.75]) {
+      final y = isCentered
+          ? size.height / 2 + (fraction - 0.5) * size.height * 0.72
+          : size.height - fraction * size.height * 0.82;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), _paint);
+    }
+
+    _paint
+      ..strokeWidth = 1
+      ..color = color.withValues(alpha: 0.22);
+    canvas.drawLine(Offset(0, baseline), Offset(size.width, baseline), _paint);
+  }
+
   void _paintBars(Canvas canvas, Size size, {required bool mirrored}) {
     const gap = 2.5;
-    final width = ((size.width - gap * (barCount - 1)) / barCount).clamp(
-      2.0,
-      18.0,
-    );
+    final layout = _frequencyLayout(size, gap: gap);
+    final width = layout.width;
     final radius = Radius.circular(math.min(width / 2, 5));
     final centerY = size.height / 2;
-    final maxHeight = size.height * (mirrored ? 0.42 : 0.86);
+    final maxHeight = size.height * (mirrored ? 0.32 : 0.62);
 
     for (var i = 0; i < barCount; i++) {
       final value = _level(i);
-      if (value < 0.008) continue;
-      final x = i * (width + gap);
-      final height = (value * maxHeight).clamp(1.5, maxHeight);
-      final barColor = Color.lerp(faintColor, _palette[i], value)!;
+      final peak = math.pow(peaks[i].clamp(0.0, 1.0), 0.50) * maxHeight;
+      if (value < 0.002 && peak < 2) continue;
+      final x = layout.left + i * layout.step;
+      final height = (value * maxHeight).clamp(2.5, maxHeight);
+      final barColor = _palette[i].withValues(
+        alpha: 0.76 + value.clamp(0.0, 1.0) * 0.24,
+      );
       _paint.color = barColor;
 
       if (mirrored) {
         final upper = Rect.fromLTWH(x, centerY - height, width, height);
         final lower = Rect.fromLTWH(x, centerY, width, height);
         canvas.drawRRect(RRect.fromRectAndRadius(upper, radius), _paint);
-        _paint.color = barColor.withValues(alpha: 0.28);
+        _paint.color = barColor.withValues(alpha: 0.52);
         canvas.drawRRect(RRect.fromRectAndRadius(lower, radius), _paint);
       } else {
+        // 低亮度底层让安静频段仍保留清晰的频谱轮廓。
+        final baseHeight = math.max(4.0, height * 0.16);
+        _paint.color = _palette[i].withValues(alpha: 0.30);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(x, size.height - baseHeight, width, baseHeight),
+            radius,
+          ),
+          _paint,
+        );
+        _paint.color = barColor;
         final rect = Rect.fromLTWH(x, size.height - height, width, height);
         canvas.drawRRect(RRect.fromRectAndRadius(rect, radius), _paint);
-        final peak = math.pow(peaks[i].clamp(0.0, 1.0), 0.72) * maxHeight;
         if (peak > 2) {
-          _paint.color = _palette[i].withValues(alpha: 0.7);
+          _paint.color = Colors.white.withValues(
+            alpha: 0.22 + (peak / maxHeight).clamp(0.0, 1.0) * 0.58,
+          );
           canvas.drawRect(
-            Rect.fromLTWH(x, size.height - peak - 2, width, 1.5),
+            Rect.fromLTWH(x, size.height - peak - 2, width, 2),
             _paint,
           );
         }
       }
 
-      if (enableGlow && value > 0.72) {
-        _paint.color = Colors.white.withValues(alpha: (value - 0.72) * 0.65);
+      if (enableGlow && value > 0.28) {
+        _paint.color = _palette[i].withValues(
+          alpha: 0.20 + (value - 0.28) * 0.38,
+        );
         canvas.drawRect(
           Rect.fromLTWH(
             x + width * 0.18,
             mirrored ? centerY - height : size.height - height,
             width * 0.64,
-            2,
+            math.max(2.0, height * 0.025),
           ),
           _paint,
         );
@@ -169,13 +268,13 @@ class SpectrumPainter extends CustomPainter {
     if (barCount < 2) return;
     final dx = size.width / (barCount - 1);
     final baseline = size.height * 0.76;
-    final amplitude = size.height * 0.58;
-    _path.moveTo(0, baseline - _level(0, 0.78) * amplitude);
+    final amplitude = size.height * 0.44;
+    _path.moveTo(0, baseline - _level(0, 0.64) * amplitude);
     for (var i = 1; i < barCount; i++) {
       final x = i * dx;
-      final y = baseline - _level(i, 0.78) * amplitude;
+      final y = baseline - _level(i, 0.64) * amplitude;
       final previousX = (i - 1) * dx;
-      final previousY = baseline - _level(i - 1, 0.78) * amplitude;
+      final previousY = baseline - _level(i - 1, 0.64) * amplitude;
       final controlX = (previousX + x) / 2;
       _path.cubicTo(controlX, previousY, controlX, y, x, y);
     }
@@ -188,32 +287,45 @@ class SpectrumPainter extends CustomPainter {
     _paint.shader = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: [color.withValues(alpha: 0.28), Colors.transparent],
+      colors: [_paletteStops[0].withValues(alpha: 0.38), Colors.transparent],
     ).createShader(Offset.zero & size);
     canvas.drawPath(_secondaryPath, _paint);
     _paint
-      ..shader = null
+      ..shader = LinearGradient(
+        colors: _paletteStops,
+      ).createShader(Offset.zero & size)
       ..style = PaintingStyle.stroke
       ..strokeWidth = enableGlow ? 2.6 : 2
-      ..color = color;
+      ..color = _paletteStops[0];
+    if (enableGlow) {
+      _paint
+        ..shader = null
+        ..strokeWidth = 7
+        ..color = _paletteStops[1].withValues(alpha: 0.22);
+      canvas.drawPath(_path, _paint);
+      _paint
+        ..strokeWidth = 2.6
+        ..shader = LinearGradient(
+          colors: _paletteStops,
+        ).createShader(Offset.zero & size)
+        ..color = _paletteStops[0];
+    }
     canvas.drawPath(_path, _paint);
   }
 
   void _paintDots(Canvas canvas, Size size) {
     const gap = 3.0;
-    final columnWidth = ((size.width - gap * (barCount - 1)) / barCount).clamp(
-      3.0,
-      14.0,
-    );
+    final layout = _frequencyLayout(size, gap: gap, minWidth: 3, maxWidth: 24);
+    final columnWidth = layout.width;
     final radius = (columnWidth * 0.28).clamp(1.1, 2.8);
     final step = radius * 2.8;
     final rows = (size.height / step).floor().clamp(4, 18);
     final verticalOffset = (size.height - rows * step) / 2;
 
     for (var i = 0; i < barCount; i++) {
-      final value = levels[i].clamp(0.0, 1.0);
+      final value = _level(i, 0.58);
       final active = (value * rows).round();
-      final x = i * (columnWidth + gap) + columnWidth / 2;
+      final x = layout.left + i * layout.step + columnWidth / 2;
       for (var row = 0; row < active; row++) {
         _paint.color = Color.lerp(
           faintColor,
@@ -242,7 +354,7 @@ class SpectrumPainter extends CustomPainter {
 
     for (var i = 0; i < barCount; i++) {
       final angle = i / barCount * math.pi * 2 - math.pi / 2;
-      final value = _level(i, 0.76);
+      final value = _level(i, 0.62);
       final cosA = math.cos(angle);
       final sinA = math.sin(angle);
       final inner = Offset(
@@ -256,13 +368,13 @@ class SpectrumPainter extends CustomPainter {
       );
       _paint
         ..strokeWidth = 1.2 + value * 2.2
-        ..color = _palette[i].withValues(alpha: 0.45 + value * 0.55);
+        ..color = _palette[i].withValues(alpha: 0.58 + value * 0.42);
       canvas.drawLine(inner, outer, _paint);
     }
 
     _paint
       ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.16 + beatIntensity * 0.2);
+      ..color = _paletteStops[1].withValues(alpha: 0.24 + beatIntensity * 0.22);
     canvas.drawCircle(
       center,
       baseRadius * (0.2 + beatIntensity * 0.08),
@@ -275,47 +387,61 @@ class SpectrumPainter extends CustomPainter {
     final dx = size.width / (barCount - 1);
     final middle = size.height / 2;
     final amplitude = size.height * 0.38;
-    _path.moveTo(0, middle - _level(0, 0.82) * amplitude);
-    _secondaryPath.moveTo(0, middle + _level(0, 0.82) * amplitude);
+    _path.moveTo(0, middle - _level(0, 0.66) * amplitude);
+    _secondaryPath.moveTo(0, middle + _level(0, 0.66) * amplitude);
     for (var i = 1; i < barCount; i++) {
       final x = i * dx;
-      final value = _level(i, 0.82) * amplitude;
+      final value = _level(i, 0.66) * amplitude;
       _path.lineTo(x, middle - value);
       _secondaryPath.lineTo(x, middle + value);
     }
 
     _paint.shader = LinearGradient(
-      colors: [color, secondaryColor, tertiaryColor],
+      colors: _paletteStops,
     ).createShader(Offset.zero & size);
     _paint
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2;
+      ..strokeWidth = 2.8;
+    if (enableGlow) {
+      _paint
+        ..strokeWidth = 7
+        ..color = _paletteStops[2].withValues(alpha: 0.22);
+      canvas.drawPath(_path, _paint);
+      _paint
+        ..strokeWidth = 2.8
+        ..shader = LinearGradient(
+          colors: _paletteStops,
+        ).createShader(Offset.zero & size);
+    }
     canvas.drawPath(_path, _paint);
     _paint
       ..shader = null
-      ..strokeWidth = 1.4
-      ..color = secondaryColor.withValues(alpha: 0.55);
+      ..strokeWidth = 1.8
+      ..color = _paletteStops[1].withValues(alpha: 0.82);
     canvas.drawPath(_secondaryPath, _paint);
     _paint
       ..strokeWidth = 0.6
-      ..color = faintColor.withValues(alpha: 0.45);
+      ..color = faintColor.withValues(alpha: 0.58);
     canvas.drawLine(Offset(0, middle), Offset(size.width, middle), _paint);
   }
 
   void _paintParticles(Canvas canvas, Size size) {
     const gap = 3.0;
-    final width = ((size.width - gap * (barCount - 1)) / barCount).clamp(
-      2.0,
-      16.0,
-    );
+    final layout = _frequencyLayout(size, gap: gap, maxWidth: 28);
+    final width = layout.width;
     for (var i = 0; i < barCount; i++) {
       final value = _level(i);
       if (value < 0.04) continue;
-      final height = value * size.height * 0.55;
-      _paint.color = _palette[i].withValues(alpha: 0.08 + value * 0.24);
+      final height = value * size.height * 0.42;
+      _paint.color = _palette[i].withValues(alpha: 0.14 + value * 0.36);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(i * (width + gap), size.height - height, width, height),
+          Rect.fromLTWH(
+            layout.left + i * layout.step,
+            size.height - height,
+            width,
+            height,
+          ),
           Radius.circular(width / 2),
         ),
         _paint,
@@ -372,10 +498,8 @@ class SpectrumPainter extends CustomPainter {
 
   void _paintFlame(Canvas canvas, Size size) {
     const gap = 2.5;
-    final width = ((size.width - gap * (barCount - 1)) / barCount).clamp(
-      3.0,
-      16.0,
-    );
+    final layout = _frequencyLayout(size, gap: gap, minWidth: 3);
+    final width = layout.width;
     final shader = const LinearGradient(
       begin: Alignment.bottomCenter,
       end: Alignment.topCenter,
@@ -384,10 +508,10 @@ class SpectrumPainter extends CustomPainter {
     ).createShader(Offset.zero & size);
     _paint.shader = shader;
     for (var i = 0; i < barCount; i++) {
-      final value = _level(i, 0.76);
+      final value = _level(i, 0.72);
       if (value < 0.025) continue;
-      final height = value * size.height * 0.9;
-      final x = i * (width + gap);
+      final height = value * size.height * 0.68;
+      final x = layout.left + i * layout.step;
       _path
         ..reset()
         ..moveTo(x, size.height)
@@ -434,7 +558,7 @@ class SpectrumPainter extends CustomPainter {
     _path.reset();
     for (var i = 0; i < barCount; i++) {
       final angle = i / barCount * math.pi * 2 - math.pi / 2;
-      final r = radius * (0.12 + _level(i, 0.82) * 0.88);
+      final r = radius * (0.12 + _level(i, 0.68) * 0.88);
       final point = Offset(
         center.dx + math.cos(angle) * r,
         center.dy + math.sin(angle) * r,
@@ -448,18 +572,21 @@ class SpectrumPainter extends CustomPainter {
     _path.close();
     _paint
       ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.12);
+      ..color = _paletteStops[0].withValues(alpha: 0.26);
     canvas.drawPath(_path, _paint);
     _paint
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.8
-      ..color = color.withValues(alpha: 0.82);
+      ..shader = LinearGradient(
+        colors: _paletteStops,
+      ).createShader(Offset.zero & size);
     canvas.drawPath(_path, _paint);
 
     final scanAngle = beatIntensity * math.pi * 2 - math.pi / 2;
     _paint
       ..strokeWidth = 2
-      ..color = tertiaryColor.withValues(alpha: 0.75);
+      ..shader = null
+      ..color = _paletteStops[2].withValues(alpha: 0.88);
     canvas.drawLine(
       center,
       Offset(
@@ -480,7 +607,7 @@ class SpectrumPainter extends CustomPainter {
       final layerRadius = baseRadius + layer * extension * 0.32;
       for (var i = 0; i < barCount; i++) {
         final angle = i / barCount * math.pi * 2 - math.pi / 2;
-        final value = _level(i, 0.84);
+        final value = _level(i, 0.70);
         final radius = layerRadius + value * extension * (0.52 - layer * 0.1);
         final x = center.dx + math.cos(angle) * radius;
         final y = center.dy + math.sin(angle) * radius;
@@ -495,38 +622,41 @@ class SpectrumPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.4 - layer * 0.55
         ..color = Color.lerp(
-          color,
-          secondaryColor,
+          _paletteStops[layer],
+          _paletteStops[(layer + 1) % 3],
           layer / 3,
-        )!.withValues(alpha: 0.65 - layer * 0.14);
+        )!.withValues(alpha: 0.78 - layer * 0.13);
       canvas.drawPath(_path, _paint);
     }
     _paint
       ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.2 + beatIntensity * 0.18);
+      ..color = _paletteStops[1].withValues(alpha: 0.24 + beatIntensity * 0.18);
     canvas.drawCircle(center, baseRadius * 0.12, _paint);
   }
 
   void _paintGradientBars(Canvas canvas, Size size) {
     const gap = 2.5;
-    final width = ((size.width - gap * (barCount - 1)) / barCount).clamp(
-      2.0,
-      18.0,
-    );
+    final layout = _frequencyLayout(size, gap: gap);
+    final width = layout.width;
     final radius = Radius.circular(math.min(width / 2, 5));
     final shader = LinearGradient(
       begin: Alignment.bottomLeft,
       end: Alignment.topRight,
-      colors: [color, secondaryColor, tertiaryColor],
+      colors: _paletteStops,
     ).createShader(Offset.zero & size);
     _paint.shader = shader;
     for (var i = 0; i < barCount; i++) {
       final value = _level(i, 0.76);
       if (value < 0.02) continue;
-      final height = value * size.height * 0.88;
+      final height = value * size.height * 0.62;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(i * (width + gap), size.height - height, width, height),
+          Rect.fromLTWH(
+            layout.left + i * layout.step,
+            size.height - height,
+            width,
+            height,
+          ),
           radius,
         ),
         _paint,
@@ -541,18 +671,16 @@ class SpectrumPainter extends CustomPainter {
       return;
     }
     const gap = 3.0;
-    final width = ((size.width - gap * (barCount - 1)) / barCount).clamp(
-      2.0,
-      12.0,
-    );
-    final maxHeight = size.height * 0.62;
+    final layout = _frequencyLayout(size, gap: gap, maxWidth: 28);
+    final width = layout.width;
+    final maxHeight = size.height * 0.50;
     final layerCount = history.length;
 
     for (var layer = layerCount - 1; layer >= 0; layer--) {
       final data = history[(historyHead + layer) % layerCount];
       final depth = layer / math.max(1, layerCount - 1);
       final scale = 0.68 + (1 - depth) * 0.32;
-      final alpha = 0.1 + (1 - depth) * 0.3;
+      final alpha = 0.16 + (1 - depth) * 0.42;
       final yShift = depth * size.height * 0.08;
       _paint.color = Color.lerp(
         secondaryColor,
@@ -560,10 +688,10 @@ class SpectrumPainter extends CustomPainter {
         1 - depth,
       )!.withValues(alpha: alpha);
       for (var i = 0; i < barCount; i++) {
-        final value = math.pow(data[i].clamp(0.0, 1.0), 0.8).toDouble();
+        final value = math.pow(data[i].clamp(0.0, 1.0), 0.68).toDouble();
         if (value < 0.025) continue;
         final scaledWidth = width * scale;
-        final x = i * (width + gap) + (width - scaledWidth) / 2;
+        final x = layout.left + i * layout.step + (width - scaledWidth) / 2;
         final height = value * maxHeight * scale;
         canvas.drawRect(
           Rect.fromLTWH(x, size.height - height + yShift, scaledWidth, height),
@@ -574,10 +702,10 @@ class SpectrumPainter extends CustomPainter {
 
     _paint.color = color;
     for (var i = 0; i < barCount; i++) {
-      final value = _level(i, 0.76);
+      final value = _level(i, 0.64);
       if (value < 0.02) continue;
       final height = value * maxHeight;
-      final x = i * (width + gap);
+      final x = layout.left + i * layout.step;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(x, size.height - height, width, height),
@@ -585,8 +713,8 @@ class SpectrumPainter extends CustomPainter {
         ),
         _paint,
       );
-      if (enableGlow && value > 0.72) {
-        _paint.color = Colors.white.withValues(alpha: (value - 0.72) * 0.55);
+      if (enableGlow && value > 0.62) {
+        _paint.color = Colors.white.withValues(alpha: (value - 0.62) * 0.62);
         canvas.drawRect(
           Rect.fromLTWH(x, size.height - height, width, 2),
           _paint,
@@ -602,6 +730,8 @@ class SpectrumPainter extends CustomPainter {
       oldDelegate.color != color ||
       oldDelegate.secondaryColor != secondaryColor ||
       oldDelegate.tertiaryColor != tertiaryColor ||
+      oldDelegate.surfaceColor != surfaceColor ||
       oldDelegate.enableGlow != enableGlow ||
+      oldDelegate.showGuides != showGuides ||
       oldDelegate.barCount != barCount;
 }

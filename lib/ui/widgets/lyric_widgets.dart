@@ -23,13 +23,13 @@ class LyricLineTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
+        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 24),
         child: Row(
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               width: 3,
-              height: isActive ? 28 : 0,
+              height: isActive ? 24 : 0,
               margin: const EdgeInsets.only(right: 12),
               decoration: BoxDecoration(
                 color: isActive ? scheme.primary : Colors.transparent,
@@ -49,14 +49,14 @@ class LyricLineTile extends StatelessWidget {
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOutCubic,
                 style: TextStyle(
-                  fontSize: isActive ? 22 : 15,
+                  fontSize: isActive ? 20 : 15,
                   fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
                   color: isActive
                       ? scheme.primary
                       : scheme.onSurfaceVariant.withValues(
                           alpha: distanceAlpha,
                         ),
-                  height: 1.6,
+                  height: 1.35,
                   letterSpacing: 0,
                   shadows: isActive
                       ? [

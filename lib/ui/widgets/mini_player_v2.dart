@@ -13,14 +13,33 @@ class MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final playlist = context.watch<PlaylistProvider>();
-    final player = context.watch<PlayerProvider>();
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
-    final track = _currentTrack(playlist);
+    return Selector<PlaylistProvider, Track?>(
+      selector: (_, playlist) => _currentTrack(playlist),
+      builder: (context, track, _) {
+        final playlist = context.read<PlaylistProvider>();
+        final player = context.read<PlayerProvider>();
 
-    if (track == null) {
-      return _buildEmptyState(context, playlist);
-    }
+        if (track == null) {
+          return _buildEmptyState(context, playlist);
+        }
+
+        return _buildPlayerBar(
+          context,
+          track: track,
+          player: player,
+          playlist: playlist,
+        );
+      },
+    );
+  }
+
+  Widget _buildPlayerBar(
+    BuildContext context, {
+    required Track track,
+    required PlayerProvider player,
+    required PlaylistProvider playlist,
+  }) {
+    final visual = Theme.of(context).extension<AppVisualTheme>()!;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -29,10 +48,22 @@ class MiniPlayer extends StatelessWidget {
         final showArtist = width >= 900;
 
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          padding: EdgeInsets.symmetric(
+            horizontal: width < 620 ? 14 : 20,
+            vertical: width < 620 ? 10 : 9,
+          ),
           decoration: BoxDecoration(
-            color: visual.panel,
-            border: Border(top: BorderSide(color: visual.border)),
+            color: visual.elevatedPanel,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: visual.border),
+            boxShadow: [
+              BoxShadow(
+                color: visual.shadow,
+                blurRadius: 14,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: width < 620
               ? Column(
@@ -40,10 +71,7 @@ class MiniPlayer extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        _AlbumArtwork(
-                          track: track,
-                          isPlaying: player.isPlaying,
-                        ),
+                        _buildArtwork(context, track),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _TrackIdentity(track: track, showArtist: true),
@@ -62,7 +90,7 @@ class MiniPlayer extends StatelessWidget {
                 )
               : Row(
                   children: [
-                    _AlbumArtwork(track: track, isPlaying: player.isPlaying),
+                    _buildArtwork(context, track),
                     const SizedBox(width: 12),
                     SizedBox(
                       width: showArtist ? 190 : 132,
@@ -96,6 +124,15 @@ class MiniPlayer extends StatelessWidget {
                   ],
                 ),
         );
+      },
+    );
+  }
+
+  Widget _buildArtwork(BuildContext context, Track track) {
+    return Selector<PlayerProvider, bool>(
+      selector: (_, player) => player.isPlaying,
+      builder: (_, isPlaying, _) {
+        return _AlbumArtwork(track: track, isPlaying: isPlaying);
       },
     );
   }
@@ -170,18 +207,18 @@ class _AlbumArtwork extends StatelessWidget {
     );
 
     return SizedBox(
-      width: 48,
-      height: 48,
+      width: 52,
+      height: 52,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(9),
               child: track.artUri == null
                   ? placeholder
                   : Image(
-                      image: coverImageProvider(track.artUri!, size: 48),
+                      image: coverImageProvider(track.artUri!, size: 52),
                       fit: BoxFit.cover,
                       frameBuilder: (context, child, frame, _) =>
                           frame == null ? placeholder : child,

@@ -29,15 +29,16 @@ class _LyricViewState extends State<LyricView> {
   int _activeIndex = -1;
   int _lastHighlighted = -1;
   bool _userInteracting = false;
-  bool _scrollPending = false;
+  bool _scrollScheduled = false;
   Timer? _scrollResetTimer;
 
   bool _isLoadingLyric = false;
   bool _isSearchingLyric = false;
   String? _lyricError;
 
-  /// 估算每行歌词的平均高度（padding: 10*2 + 文字高度约 24）
-  static const double _estimatedLineHeight = 44.0;
+  /// 估算每行歌词的平均高度（padding: 7*2 + 文字高度约 28）
+  static const double _estimatedLineHeight = 42.0;
+  static const double _listVerticalPadding = 40.0;
 
   @override
   void didChangeDependencies() {
@@ -128,10 +129,10 @@ class _LyricViewState extends State<LyricView> {
       );
     }
 
-    if (!_userInteracting && !_scrollPending) {
-      _scrollPending = true;
+    if (!_userInteracting && !_scrollScheduled) {
+      _scrollScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollPending = false;
+        _scrollScheduled = false;
         if (mounted && !_userInteracting) {
           _performAutoScroll(idx);
         }
@@ -159,7 +160,11 @@ class _LyricViewState extends State<LyricView> {
             child: ListView.builder(
               controller: _scrollController,
               itemCount: lines.length,
-              padding: const EdgeInsets.symmetric(vertical: 56),
+              padding: const EdgeInsets.symmetric(
+                vertical: _listVerticalPadding,
+              ),
+              addRepaintBoundaries: true,
+              itemExtent: _estimatedLineHeight,
               itemBuilder: (context, i) {
                 final isActive = i == idx;
                 final distance = idx >= 0 ? (i - idx).abs() : 0;
@@ -250,7 +255,8 @@ class _LyricViewState extends State<LyricView> {
     if (idx < 0 || idx >= lines.length) return;
     // 基于估算行高计算偏移，居中显示
     final viewportHeight = _scrollController.position.viewportDimension;
-    final targetOffset = idx * _estimatedLineHeight + 56 - viewportHeight / 2;
+    final targetOffset =
+        idx * _estimatedLineHeight + _listVerticalPadding - viewportHeight / 2;
     final maxOffset = _scrollController.position.maxScrollExtent;
     final clampedOffset = targetOffset.clamp(0.0, maxOffset);
     _scrollController.animateTo(
@@ -265,7 +271,9 @@ class _LyricViewState extends State<LyricView> {
     if (idx < 0 || idx >= lines.length) return;
     // 基于估算偏移检查当前行是否在视口舒适区域内
     final estimatedTop =
-        idx * _estimatedLineHeight + 56 - _scrollController.offset;
+        idx * _estimatedLineHeight +
+        _listVerticalPadding -
+        _scrollController.offset;
     final viewportHeight = _scrollController.position.viewportDimension;
     final comfortableTop = viewportHeight * 0.25;
     final comfortableBottom = viewportHeight * 0.75;

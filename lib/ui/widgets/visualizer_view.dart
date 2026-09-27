@@ -17,6 +17,7 @@ class VisualizerView extends StatefulWidget {
     this.showStyleSelector = true,
     this.fixedStyle,
     this.enableGlow = true,
+    this.showGuides = true,
     this.onStyleChanged,
     this.enabled = true,
     this.maxFps = 30,
@@ -24,6 +25,7 @@ class VisualizerView extends StatefulWidget {
   final bool showStyleSelector;
   final VisualizerStyle? fixedStyle;
   final bool enableGlow;
+  final bool showGuides;
   final ValueChanged<VisualizerStyle>? onStyleChanged;
 
   /// 是否启用渲染（不可见时应设为 false 以节省 CPU/内存）
@@ -63,6 +65,7 @@ class _VisualizerViewState extends State<VisualizerView>
   bool _isPlaying = false;
   bool _tickerEnabled = true;
   double _beatIntensity = 0.0;
+  double _signalEnvelope = 0.015;
 
   // 优化的粒子系统
   final List<Particle> _particles = [];
@@ -128,10 +131,10 @@ class _VisualizerViewState extends State<VisualizerView>
     _mappedBarCount = _currentBarCount;
     final usableLength = math.max(1, fftLength);
     for (var i = 0; i < _currentBarCount; i++) {
-      final start = (math.pow(i / _currentBarCount, 1.5) * usableLength)
+      final start = (math.pow(i / _currentBarCount, 1.25) * usableLength)
           .toInt()
           .clamp(0, fftLength - 1);
-      final end = (math.pow((i + 1) / _currentBarCount, 1.5) * usableLength)
+      final end = (math.pow((i + 1) / _currentBarCount, 1.25) * usableLength)
           .toInt()
           .clamp(start + 1, fftLength);
       _bandStarts[i] = start;
@@ -145,26 +148,31 @@ class _VisualizerViewState extends State<VisualizerView>
 
     if (fftData.isEmpty || _currentBarCount == 0) return;
 
-    // 快速检查是否有有效数据
-    bool hasData = false;
-    final checkLength = math.min(fftData.length, 50);
-    for (var i = 0; i < checkLength; i++) {
-      if (fftData[i] > 0.01) {
-        hasData = true;
-        break;
-      }
+    // SoLoud 返回的频谱幅度会随音源和音量变化。先估算当前帧峰值，
+    // 再用带衰减的包络做自适应增益，避免安静音源几乎不可见。
+    var framePeak = 0.0;
+    for (var i = 0; i < fftData.length; i++) {
+      final sample = fftData[i].clamp(0.0, 2.0);
+      if (sample > framePeak) framePeak = sample;
     }
 
-    if (!hasData || !isPlaying) {
+    // 不要过早丢弃安静音源；不同设备返回的 FFT 绝对幅度差异很大。
+    if (framePeak < 0.00008 || !isPlaying) {
       // 衰减模式
       for (var i = 0; i < _currentBarCount; i++) {
         _targets[i] = _targets[i] * 0.92;
         if (_targets[i] < 0.001) _targets[i] = 0.0;
       }
       _beatIntensity *= 0.92;
+      _signalEnvelope *= 0.985;
       return;
     }
 
+    _signalEnvelope = framePeak > _signalEnvelope
+        ? framePeak
+        : _signalEnvelope * 0.93;
+    final noiseFloor = math.min(framePeak * 0.025, 0.003);
+    final normalizer = math.max(0.012, _signalEnvelope * 0.78);
     final fftLength = fftData.length;
     _ensureBandMapping(fftLength);
     // 频段边界仅在尺寸变化时计算，热循环中不再执行 pow/toInt。
@@ -178,15 +186,19 @@ class _VisualizerViewState extends State<VisualizerView>
         if (fftData[j] > peak) peak = fftData[j];
       }
 
-      // 使用曲线压缩：低音量敏感，高音量压缩
-      // pow(x, 0.6) 比 sqrt 更激进，让小信号也可见
-      final compressed = math
-          .pow(peak.clamp(0.0, 2.0) / 2.0, 0.55)
-          .clamp(0.0, 1.0);
+      // 先相对当前帧归一化，再使用曲线压缩提升小信号。
+      final normalized = ((peak - noiseFloor) / normalizer * 1.05).clamp(
+        0.0,
+        1.0,
+      );
+      final compressed = math.pow(normalized, 0.64).clamp(0.0, 1.0);
 
-      // 频率补偿：高频自然衰减，给低频柱稍微衰减以避免低音压制
-      final freqWeight = 0.7 + 0.3 * (i / _currentBarCount);
-      _targets[i] = compressed * freqWeight * 0.95;
+      // 高频能量天然衰减，保留低频冲击的同时给高频更多可视权重。
+      final bandProgress = _currentBarCount <= 1
+          ? 0.0
+          : i / (_currentBarCount - 1);
+      final freqWeight = 0.84 + 0.24 * math.pow(bandProgress, 0.72);
+      _targets[i] = (compressed * freqWeight * 0.90).clamp(0.0, 1.0);
     }
 
     // 改进的节拍检测 — 使用低频能量突变
@@ -219,7 +231,7 @@ class _VisualizerViewState extends State<VisualizerView>
     final player = _playerProvider ??= context.read<PlayerProvider>();
     final isPlaying = player.isPlaying;
     final regularInterval = (1000000 / widget.maxFps.clamp(12, 60)).round();
-    final heavyInterval = math.max(regularInterval, 41667);
+    final heavyInterval = math.max(regularInterval, 33333);
     final intervalMicros = currentStyle.isHeavy
         ? heavyInterval
         : regularInterval;
@@ -242,8 +254,8 @@ class _VisualizerViewState extends State<VisualizerView>
       _particles.clear();
     }
 
-    const fallSpeed = 0.18;
-    const riseSpeed = 0.7;
+    const fallSpeed = 0.22;
+    const riseSpeed = 0.86;
     final needsPeaks =
         currentStyle == VisualizerStyle.bars ||
         currentStyle == VisualizerStyle.mirroredBars;
@@ -460,6 +472,7 @@ class _VisualizerViewState extends State<VisualizerView>
                       color: scheme.primary,
                       secondaryColor: scheme.secondary,
                       tertiaryColor: scheme.tertiary,
+                      surfaceColor: scheme.surface,
                       faintColor: scheme.primary.withValues(alpha: 0.18),
                       particles: currentStyle == VisualizerStyle.particles
                           ? _particles
@@ -470,7 +483,16 @@ class _VisualizerViewState extends State<VisualizerView>
                       historyHead: _historyHead,
                       beatIntensity: _beatIntensity,
                       enableGlow: widget.enableGlow,
+                      showGuides: widget.showGuides,
                     ),
+                  ),
+                ),
+                Positioned(
+                  left: 10,
+                  bottom: 8,
+                  child: _VisualizerStatus(
+                    style: currentStyle,
+                    isPlaying: isPlaying,
                   ),
                 ),
                 if (widget.showStyleSelector)
@@ -493,7 +515,17 @@ class _VisualizerViewState extends State<VisualizerView>
                                 value: style,
                                 child: Row(
                                   children: [
-                                    Icon(style.icon, size: 18),
+                                    Icon(
+                                      style == currentStyle
+                                          ? Icons.check_rounded
+                                          : style.icon,
+                                      size: 18,
+                                      color: style == currentStyle
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.primary
+                                          : null,
+                                    ),
                                     const SizedBox(width: 12),
                                     Text(style.displayName),
                                   ],
@@ -534,6 +566,63 @@ class _VisualizerViewState extends State<VisualizerView>
   void _setVisualizationConsumer(bool active) {
     final player = _playerProvider ??= context.read<PlayerProvider>();
     player.setVisualizationConsumerActive(this, active);
+  }
+}
+
+class _VisualizerStatus extends StatelessWidget {
+  const _VisualizerStatus({required this.style, required this.isPlaying});
+
+  final VisualizerStyle style;
+  final bool isPlaying;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = isPlaying && TickerMode.valuesOf(context).enabled;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.76),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(style.icon, size: 14, color: scheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              style.displayName,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: active ? scheme.primary : scheme.outline,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              active ? '实时' : '待机',
+              style: TextStyle(
+                color: active ? scheme.primary : scheme.onSurfaceVariant,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

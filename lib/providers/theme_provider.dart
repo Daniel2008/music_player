@@ -126,30 +126,32 @@ class ThemeProvider extends ChangeNotifier {
 
   void _rebuildThemes() {
     final lightScheme = ColorScheme.fromSeed(seedColor: _seedColor).copyWith(
-      surface: const Color(0xFFFAFAFA),
+      surface: const Color(0xFFF7F9FC),
       surfaceContainerLowest: Colors.white,
-      surfaceContainerLow: const Color(0xFFF5F5F5),
-      surfaceContainer: const Color(0xFFF0F0F0),
-      surfaceContainerHigh: const Color(0xFFEAEAEA),
-      surfaceContainerHighest: const Color(0xFFE3E3E3),
-      onSurface: const Color(0xFF202124),
-      onSurfaceVariant: const Color(0xFF616368),
-      outlineVariant: const Color(0xFFDEDFE1),
+      surfaceContainerLow: const Color(0xFFFFFFFF),
+      surfaceContainer: const Color(0xFFF3F6FA),
+      surfaceContainerHigh: const Color(0xFFEEF2F7),
+      surfaceContainerHighest: const Color(0xFFE3E9F1),
+      onSurface: const Color(0xFF18212F),
+      onSurfaceVariant: const Color(0xFF667085),
+      outline: const Color(0xFF8792A3),
+      outlineVariant: const Color(0xFFD6DDE7),
     );
     final darkScheme =
         ColorScheme.fromSeed(
           seedColor: _seedColor,
           brightness: Brightness.dark,
         ).copyWith(
-          surface: const Color(0xFF171719),
-          surfaceContainerLowest: const Color(0xFF111113),
-          surfaceContainerLow: const Color(0xFF1C1C1F),
-          surfaceContainer: const Color(0xFF222225),
-          surfaceContainerHigh: const Color(0xFF29292D),
-          surfaceContainerHighest: const Color(0xFF333338),
-          onSurface: const Color(0xFFECECEE),
-          onSurfaceVariant: const Color(0xFFABABB2),
-          outlineVariant: const Color(0xFF343439),
+          surface: const Color(0xFF0D1117),
+          surfaceContainerLowest: const Color(0xFF090C11),
+          surfaceContainerLow: const Color(0xFF121821),
+          surfaceContainer: const Color(0xFF17202B),
+          surfaceContainerHigh: const Color(0xFF1D2936),
+          surfaceContainerHighest: const Color(0xFF273443),
+          onSurface: const Color(0xFFF2F4F7),
+          onSurfaceVariant: const Color(0xFFAAB5C4),
+          outline: const Color(0xFF7D8B9C),
+          outlineVariant: const Color(0xFF2B3949),
         );
 
     lightTheme = _buildThemeData(
@@ -164,8 +166,8 @@ class ThemeProvider extends ChangeNotifier {
     final surface = scheme.surface;
     final panel = scheme.surfaceContainerLow;
     final border = isDark
-        ? Colors.white.withValues(alpha: 0.09)
-        : const Color(0xFF111827).withValues(alpha: 0.1);
+        ? Colors.white.withValues(alpha: 0.085)
+        : const Color(0xFF344054).withValues(alpha: 0.12);
 
     final base = ThemeData(
       colorScheme: scheme,
@@ -193,8 +195,11 @@ class ThemeProvider extends ChangeNotifier {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: isDark
-            ? Colors.white.withValues(alpha: 0.045)
-            : Colors.white,
+            ? Colors.white.withValues(alpha: 0.055)
+            : Colors.white.withValues(alpha: 0.82),
+        isDense: true,
+        prefixIconColor: scheme.onSurfaceVariant,
+        suffixIconColor: scheme.onSurfaceVariant,
         hintStyle: TextStyle(
           color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
         ),
@@ -215,50 +220,85 @@ class ThemeProvider extends ChangeNotifier {
           borderSide: BorderSide(color: scheme.error),
         ),
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 16,
+          horizontal: 14,
+          vertical: 14,
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(40, 40),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          elevation: 0,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(40, 40),
           side: BorderSide(color: border),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
-          minimumSize: const Size(40, 40),
+          minimumSize: const Size(38, 38),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          foregroundColor: scheme.onSurfaceVariant,
+          hoverColor: scheme.primary.withValues(alpha: 0.09),
+          highlightColor: scheme.primary.withValues(alpha: 0.14),
         ),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: scheme.surfaceContainerHigh,
         selectedColor: scheme.primaryContainer,
         side: BorderSide(color: border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         labelStyle: TextStyle(color: scheme.onSurfaceVariant),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       ),
       listTileTheme: ListTileThemeData(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         iconColor: scheme.onSurfaceVariant,
+        minLeadingWidth: 32,
+        minVerticalPadding: 8,
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          side: WidgetStatePropertyAll(BorderSide(color: border)),
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: isDark
+            ? scheme.surfaceContainerHigh
+            : scheme.surfaceContainerLowest,
+        elevation: 12,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      expansionTileTheme: ExpansionTileThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        collapsedShape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        iconColor: scheme.onSurfaceVariant,
+        collapsedIconColor: scheme.onSurfaceVariant,
+        childrenPadding: const EdgeInsets.only(bottom: 6),
       ),
       sliderTheme: SliderThemeData(
         trackHeight: 4,
@@ -266,6 +306,28 @@ class ThemeProvider extends ChangeNotifier {
         inactiveTrackColor: scheme.surfaceContainerHighest,
         thumbColor: scheme.primary,
         overlayColor: scheme.primary.withValues(alpha: 0.12),
+        minThumbSeparation: 0,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : scheme.onSurfaceVariant,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? scheme.primary
+              : scheme.surfaceContainerHighest,
+        ),
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? scheme.primary : border,
+        ),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: scheme.primary,
+        linearTrackColor: scheme.surfaceContainerHighest,
+        circularTrackColor: scheme.surfaceContainerHighest,
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
@@ -277,10 +339,13 @@ class ThemeProvider extends ChangeNotifier {
         backgroundColor: panel,
         elevation: 20,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        surfaceTintColor: Colors.transparent,
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: panel,
         modalBackgroundColor: panel,
+        showDragHandle: true,
+        dragHandleColor: scheme.outline,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
         ),
@@ -308,10 +373,16 @@ class ThemeProvider extends ChangeNotifier {
       extensions: [
         AppVisualTheme(
           panel: panel,
-          elevatedPanel: scheme.surfaceContainerHigh,
+          elevatedPanel: isDark
+              ? scheme.surfaceContainerHigh
+              : scheme.surfaceContainerLowest,
           sidebar: scheme.surfaceContainerLowest,
           border: border,
-          glow: scheme.primary.withValues(alpha: isDark ? 0.08 : 0.06),
+          panelMuted: scheme.surfaceContainerHigh,
+          hover: scheme.primary.withValues(alpha: isDark ? 0.08 : 0.055),
+          selected: scheme.primary.withValues(alpha: isDark ? 0.17 : 0.1),
+          glow: scheme.primary.withValues(alpha: isDark ? 0.12 : 0.07),
+          shadow: scheme.shadow.withValues(alpha: isDark ? 0.22 : 0.08),
         ),
       ],
     );
@@ -390,14 +461,22 @@ class AppVisualTheme extends ThemeExtension<AppVisualTheme> {
     required this.elevatedPanel,
     required this.sidebar,
     required this.border,
+    required this.panelMuted,
+    required this.hover,
+    required this.selected,
     required this.glow,
+    required this.shadow,
   });
 
   final Color panel;
   final Color elevatedPanel;
   final Color sidebar;
   final Color border;
+  final Color panelMuted;
+  final Color hover;
+  final Color selected;
   final Color glow;
+  final Color shadow;
 
   @override
   AppVisualTheme copyWith({
@@ -405,13 +484,21 @@ class AppVisualTheme extends ThemeExtension<AppVisualTheme> {
     Color? elevatedPanel,
     Color? sidebar,
     Color? border,
+    Color? panelMuted,
+    Color? hover,
+    Color? selected,
     Color? glow,
+    Color? shadow,
   }) => AppVisualTheme(
     panel: panel ?? this.panel,
     elevatedPanel: elevatedPanel ?? this.elevatedPanel,
     sidebar: sidebar ?? this.sidebar,
     border: border ?? this.border,
+    panelMuted: panelMuted ?? this.panelMuted,
+    hover: hover ?? this.hover,
+    selected: selected ?? this.selected,
     glow: glow ?? this.glow,
+    shadow: shadow ?? this.shadow,
   );
 
   @override
@@ -422,7 +509,11 @@ class AppVisualTheme extends ThemeExtension<AppVisualTheme> {
       elevatedPanel: Color.lerp(elevatedPanel, other.elevatedPanel, t)!,
       sidebar: Color.lerp(sidebar, other.sidebar, t)!,
       border: Color.lerp(border, other.border, t)!,
+      panelMuted: Color.lerp(panelMuted, other.panelMuted, t)!,
+      hover: Color.lerp(hover, other.hover, t)!,
+      selected: Color.lerp(selected, other.selected, t)!,
       glow: Color.lerp(glow, other.glow, t)!,
+      shadow: Color.lerp(shadow, other.shadow, t)!,
     );
   }
 }

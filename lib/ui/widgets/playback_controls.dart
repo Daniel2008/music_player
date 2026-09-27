@@ -19,32 +19,6 @@ class PlaybackControls extends StatelessWidget {
   final bool compact;
   final bool showMode;
 
-  IconData get _modeIcon {
-    switch (playlist.playMode) {
-      case PlayMode.sequence:
-        return Icons.arrow_forward_rounded;
-      case PlayMode.loop:
-        return Icons.repeat_rounded;
-      case PlayMode.single:
-        return Icons.repeat_one_rounded;
-      case PlayMode.shuffle:
-        return Icons.shuffle_rounded;
-    }
-  }
-
-  String get _modeTooltip {
-    switch (playlist.playMode) {
-      case PlayMode.sequence:
-        return '顺序播放';
-      case PlayMode.loop:
-        return '列表循环';
-      case PlayMode.single:
-        return '单曲循环';
-      case PlayMode.shuffle:
-        return '随机播放';
-    }
-  }
-
   Future<void> _togglePlayback() async {
     if (player.isPlaying) {
       await player.pause();
@@ -77,31 +51,19 @@ class PlaybackControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final sideButtonSize = compact ? 34.0 : 40.0;
     final playButtonSize = compact ? 42.0 : 54.0;
     final sideIconSize = compact ? 20.0 : 24.0;
     final playIconSize = compact ? 24.0 : 30.0;
-    final modeActive = playlist.playMode != PlayMode.sequence;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (showMode)
-          IconButton(
-            onPressed: playlist.cyclePlayMode,
-            tooltip: _modeTooltip,
-            icon: Icon(
-              _modeIcon,
-              size: sideIconSize - 2,
-              color: modeActive ? scheme.primary : scheme.onSurfaceVariant,
-            ),
-            style: IconButton.styleFrom(
-              minimumSize: Size.square(sideButtonSize),
-              backgroundColor: modeActive
-                  ? scheme.primaryContainer.withValues(alpha: 0.65)
-                  : Colors.transparent,
-            ),
+          _PlaybackModeButton(
+            playlist: playlist,
+            size: sideButtonSize,
+            iconSize: sideIconSize - 2,
           ),
         if (showMode) SizedBox(width: compact ? 2 : 8),
         IconButton(
@@ -111,25 +73,11 @@ class PlaybackControls extends StatelessWidget {
           style: IconButton.styleFrom(minimumSize: Size.square(sideButtonSize)),
         ),
         SizedBox(width: compact ? 4 : 10),
-        IconButton.filled(
+        _PlayPauseButton(
+          player: player,
           onPressed: _togglePlayback,
-          tooltip: player.isPlaying ? '暂停' : '播放',
-          icon: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 160),
-            transitionBuilder: (child, animation) =>
-                ScaleTransition(scale: animation, child: child),
-            child: Icon(
-              player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              key: ValueKey(player.isPlaying),
-              size: playIconSize,
-            ),
-          ),
-          style: IconButton.styleFrom(
-            minimumSize: Size.square(playButtonSize),
-            backgroundColor: scheme.primary,
-            foregroundColor: scheme.onPrimary,
-            elevation: 0,
-          ),
+          size: playButtonSize,
+          iconSize: playIconSize,
         ),
         SizedBox(width: compact ? 4 : 10),
         IconButton(
@@ -139,6 +87,116 @@ class PlaybackControls extends StatelessWidget {
           style: IconButton.styleFrom(minimumSize: Size.square(sideButtonSize)),
         ),
       ],
+    );
+  }
+}
+
+class _PlaybackModeButton extends StatelessWidget {
+  const _PlaybackModeButton({
+    required this.playlist,
+    required this.size,
+    required this.iconSize,
+  });
+
+  final PlaylistProvider playlist;
+  final double size;
+  final double iconSize;
+
+  IconData _iconFor(PlayMode mode) {
+    switch (mode) {
+      case PlayMode.sequence:
+        return Icons.arrow_forward_rounded;
+      case PlayMode.loop:
+        return Icons.repeat_rounded;
+      case PlayMode.single:
+        return Icons.repeat_one_rounded;
+      case PlayMode.shuffle:
+        return Icons.shuffle_rounded;
+    }
+  }
+
+  String _tooltipFor(PlayMode mode) {
+    switch (mode) {
+      case PlayMode.sequence:
+        return '顺序播放';
+      case PlayMode.loop:
+        return '列表循环';
+      case PlayMode.single:
+        return '单曲循环';
+      case PlayMode.shuffle:
+        return '随机播放';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: playlist,
+      builder: (context, _) {
+        final mode = playlist.playMode;
+        final active = mode != PlayMode.sequence;
+        return IconButton(
+          onPressed: playlist.cyclePlayMode,
+          tooltip: _tooltipFor(mode),
+          icon: Icon(
+            _iconFor(mode),
+            size: iconSize,
+            color: active ? scheme.primary : scheme.onSurfaceVariant,
+          ),
+          style: IconButton.styleFrom(
+            minimumSize: Size.square(size),
+            backgroundColor: active
+                ? scheme.primaryContainer.withValues(alpha: 0.65)
+                : Colors.transparent,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PlayPauseButton extends StatelessWidget {
+  const _PlayPauseButton({
+    required this.player,
+    required this.onPressed,
+    required this.size,
+    required this.iconSize,
+  });
+
+  final PlayerProvider player;
+  final VoidCallback onPressed;
+  final double size;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: player,
+      builder: (context, _) {
+        final isPlaying = player.isPlaying;
+        return IconButton.filled(
+          onPressed: onPressed,
+          tooltip: isPlaying ? '暂停' : '播放',
+          icon: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            transitionBuilder: (child, animation) =>
+                ScaleTransition(scale: animation, child: child),
+            child: Icon(
+              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+              key: ValueKey(isPlaying),
+              size: iconSize,
+            ),
+          ),
+          style: IconButton.styleFrom(
+            minimumSize: Size.square(size),
+            backgroundColor: scheme.primary,
+            foregroundColor: scheme.onPrimary,
+            elevation: 0,
+          ),
+        );
+      },
     );
   }
 }

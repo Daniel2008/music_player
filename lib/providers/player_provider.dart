@@ -69,7 +69,8 @@ class PlayerProvider extends ChangeNotifier {
     try {
       await _soloud.init();
       _soloud.setVisualizationEnabled(false);
-      _soloud.setFftSmoothing(0.8);
+      // 降低平滑度，让鼓点和瞬态变化能及时反映到频谱。
+      _soloud.setFftSmoothing(0.38);
       _audioData = AudioData(GetSamplesKind.linear);
       _initialized = true;
       notifyListeners();

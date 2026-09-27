@@ -5,7 +5,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../providers/theme_provider.dart';
 import '../widgets/mini_player_v2.dart';
 import '../widgets/hotkey_binder.dart';
-import 'player_workspace_page_v2.dart';
+import 'player_workspace_page_v3.dart';
 import 'search_page.dart';
 import 'favorites_workspace_page.dart';
 import 'history_workspace_page.dart';
@@ -127,8 +127,7 @@ class _MainLayoutState extends State<MainLayout> {
                               ],
                             ),
                           ),
-                          if (_selectedIndex != 0 || useBottomNavigation)
-                            const MiniPlayer(),
+                          const MiniPlayer(),
                           if (useBottomNavigation)
                             _buildBottomNavigation(context, scheme),
                         ],
@@ -168,20 +167,23 @@ class _MainLayoutState extends State<MainLayout> {
               width: 30,
               height: 30,
               decoration: BoxDecoration(
-                color: scheme.primary,
-                borderRadius: BorderRadius.circular(6),
+                color: scheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: 0.22),
+                ),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.music_note_rounded,
-                size: 17,
-                color: Colors.white,
+                size: 16,
+                color: scheme.primary,
               ),
             ),
-            const SizedBox(width: 11),
+            const SizedBox(width: 9),
             Text(
               'Music Player',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: scheme.onSurface,
               ),
@@ -222,7 +224,7 @@ class _MainLayoutState extends State<MainLayout> {
     bool isClose = false,
   }) {
     return SizedBox(
-      width: 46,
+      width: 44,
       height: 48,
       child: Material(
         color: Colors.transparent,
@@ -233,7 +235,7 @@ class _MainLayoutState extends State<MainLayout> {
               : scheme.onSurface.withValues(alpha: 0.08),
           child: Icon(
             icon,
-            size: 16,
+            size: 15,
             color: scheme.onSurface.withValues(alpha: 0.7),
           ),
         ),
@@ -250,7 +252,7 @@ class _MainLayoutState extends State<MainLayout> {
     final theme = context.read<ThemeProvider>();
 
     return Container(
-      width: isWide ? 196 : 76,
+      width: isWide ? 204 : 72,
       decoration: BoxDecoration(
         color: Theme.of(context).extension<AppVisualTheme>()!.sidebar,
         border: Border(
@@ -265,7 +267,7 @@ class _MainLayoutState extends State<MainLayout> {
           const SizedBox(height: 16),
           if (isWide)
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -274,6 +276,7 @@ class _MainLayoutState extends State<MainLayout> {
                     color: scheme.onSurfaceVariant,
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
                   ),
                 ),
               ),
@@ -318,6 +321,7 @@ class _MainLayoutState extends State<MainLayout> {
   ) {
     final item = _navItems[index];
     final isSelected = _selectedIndex == index;
+    final visual = Theme.of(context).extension<AppVisualTheme>()!;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: isSelected ? 1.0 : 0.0),
@@ -328,16 +332,14 @@ class _MainLayoutState extends State<MainLayout> {
           color: Colors.transparent,
           child: InkWell(
             onTap: () => _onDestinationSelected(index),
-            borderRadius: BorderRadius.circular(6),
-            hoverColor: scheme.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(8),
+            hoverColor: visual.hover,
             splashColor: scheme.primary.withValues(alpha: 0.1),
             child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
-                color: isSelected
-                    ? scheme.primary.withValues(alpha: 0.1)
-                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                color: isSelected ? visual.selected : Colors.transparent,
               ),
               child: Row(
                 mainAxisAlignment: isWide
@@ -346,11 +348,13 @@ class _MainLayoutState extends State<MainLayout> {
                 children: [
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 220),
-                    width: 36,
+                    width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
+                      color: isSelected
+                          ? scheme.primary.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
                       isSelected ? item.selectedIcon : item.icon,
@@ -359,7 +363,7 @@ class _MainLayoutState extends State<MainLayout> {
                         scheme.primary,
                         value,
                       ),
-                      size: 22,
+                      size: 20,
                     ),
                   ),
                   if (isWide) ...[
@@ -412,15 +416,15 @@ class _MainLayoutState extends State<MainLayout> {
                   label: _navItems[i].label,
                   child: InkWell(
                     onTap: () => _onDestinationSelected(i),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(8),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 220),
-                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
                       decoration: BoxDecoration(
                         color: _selectedIndex == i
-                            ? scheme.primaryContainer
+                            ? visual.selected
                             : Colors.transparent,
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -429,7 +433,7 @@ class _MainLayoutState extends State<MainLayout> {
                             _selectedIndex == i
                                 ? _navItems[i].selectedIcon
                                 : _navItems[i].icon,
-                            size: 21,
+                            size: 20,
                             color: _selectedIndex == i
                                 ? scheme.primary
                                 : scheme.onSurfaceVariant,
@@ -468,15 +472,16 @@ class _MainLayoutState extends State<MainLayout> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => theme.setMode(isDark ? ThemeMode.light : ThemeMode.dark),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           hoverColor: scheme.primary.withValues(alpha: 0.08),
           child: Container(
-            padding: const EdgeInsets.all(10),
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               color: Theme.of(
                 context,
               ).extension<AppVisualTheme>()!.elevatedPanel,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: Theme.of(context).extension<AppVisualTheme>()!.border,
               ),

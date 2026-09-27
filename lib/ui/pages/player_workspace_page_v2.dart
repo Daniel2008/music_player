@@ -7,6 +7,7 @@ import '../../main.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../widgets/app_surfaces.dart';
 import '../widgets/lyric_view.dart';
 import '../widgets/playback_controls.dart';
@@ -56,10 +57,10 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
     Track? track,
   ) {
     final queueWidth = math.min(
-      320.0,
-      math.max(280.0, constraints.maxWidth * 0.27),
+      304.0,
+      math.max(272.0, constraints.maxWidth * 0.255),
     );
-    final contentHeight = (constraints.maxHeight * 0.33).clamp(176.0, 232.0);
+    final contentHeight = (constraints.maxHeight * 0.31).clamp(176.0, 224.0);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
@@ -69,21 +70,25 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
             child: Column(
               children: [
                 Expanded(
-                  child: _NowPlayingStage(
-                    track: track,
-                    contentView: _contentView,
-                    visualizerStyle: _visualizerStyle,
-                    playlistExpanded: _playlistExpanded,
-                    onContentViewChanged: (view) {
-                      setState(() => _contentView = view);
-                    },
-                    onVisualizerStyleChanged: (style) {
-                      setState(() => _visualizerStyle = style);
-                    },
-                    onTogglePlaylist: () {
-                      setState(() => _playlistExpanded = !_playlistExpanded);
-                    },
-                    onOpenFullscreen: _openFullscreenVisualizer,
+                  child: AppPanel(
+                    elevated: true,
+                    padding: EdgeInsets.zero,
+                    child: _NowPlayingStage(
+                      track: track,
+                      contentView: _contentView,
+                      visualizerStyle: _visualizerStyle,
+                      playlistExpanded: _playlistExpanded,
+                      onContentViewChanged: (view) {
+                        setState(() => _contentView = view);
+                      },
+                      onVisualizerStyleChanged: (style) {
+                        setState(() => _visualizerStyle = style);
+                      },
+                      onTogglePlaylist: () {
+                        setState(() => _playlistExpanded = !_playlistExpanded);
+                      },
+                      onOpenFullscreen: _openFullscreenVisualizer,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -95,7 +100,7 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
             ),
           ),
           if (_playlistExpanded) ...[
-            const SizedBox(width: 24),
+            const SizedBox(width: 16),
             SizedBox(
               width: queueWidth,
               child: const AppPanel(
@@ -117,21 +122,25 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
         children: [
           SizedBox(
             height: 350,
-            child: _NowPlayingStage(
-              track: track,
-              contentView: _contentView,
-              visualizerStyle: _visualizerStyle,
-              playlistExpanded: _playlistExpanded,
-              onContentViewChanged: (view) {
-                setState(() => _contentView = view);
-              },
-              onVisualizerStyleChanged: (style) {
-                setState(() => _visualizerStyle = style);
-              },
-              onTogglePlaylist: () {
-                setState(() => _playlistExpanded = !_playlistExpanded);
-              },
-              onOpenFullscreen: _openFullscreenVisualizer,
+            child: AppPanel(
+              elevated: true,
+              padding: EdgeInsets.zero,
+              child: _NowPlayingStage(
+                track: track,
+                contentView: _contentView,
+                visualizerStyle: _visualizerStyle,
+                playlistExpanded: _playlistExpanded,
+                onContentViewChanged: (view) {
+                  setState(() => _contentView = view);
+                },
+                onVisualizerStyleChanged: (style) {
+                  setState(() => _visualizerStyle = style);
+                },
+                onTogglePlaylist: () {
+                  setState(() => _playlistExpanded = !_playlistExpanded);
+                },
+                onOpenFullscreen: _openFullscreenVisualizer,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -152,15 +161,32 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
   }
 
   Widget _buildContentPanel(BuildContext context) {
+    final isVisualizer = _contentView == _PlayerContentView.visualizer;
+
     return AppPanel(
-      padding: const EdgeInsets.all(10),
-      child: _contentView == _PlayerContentView.visualizer
-          ? VisualizerView(
-              showStyleSelector: false,
-              fixedStyle: _visualizerStyle,
-              maxFps: 24,
-            )
-          : const LyricView(),
+      elevated: true,
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          _ContentPanelHeader(
+            isVisualizer: isVisualizer,
+            style: _visualizerStyle,
+            onOpenFullscreen: isVisualizer ? _openFullscreenVisualizer : null,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+              child: isVisualizer
+                  ? VisualizerView(
+                      showStyleSelector: false,
+                      fixedStyle: _visualizerStyle,
+                      maxFps: 24,
+                    )
+                  : const LyricView(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -179,6 +205,71 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
             FadeTransition(opacity: animation, child: child),
         transitionDuration: const Duration(milliseconds: 220),
+      ),
+    );
+  }
+}
+
+class _ContentPanelHeader extends StatelessWidget {
+  const _ContentPanelHeader({
+    required this.isVisualizer,
+    required this.style,
+    required this.onOpenFullscreen,
+  });
+
+  final bool isVisualizer;
+  final VisualizerStyle style;
+  final VoidCallback? onOpenFullscreen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 42,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 0, 8, 0),
+        child: Row(
+          children: [
+            Icon(
+              isVisualizer ? Icons.graphic_eq_rounded : Icons.lyrics_outlined,
+              size: 17,
+              color: scheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              isVisualizer ? '实时频谱' : '同步歌词',
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (isVisualizer) ...[
+              const SizedBox(width: 8),
+              Container(
+                width: 4,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: scheme.outline,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                style.displayName,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
+              ),
+            ],
+            const Spacer(),
+            if (onOpenFullscreen != null)
+              IconButton(
+                onPressed: onOpenFullscreen,
+                tooltip: '全屏频谱',
+                icon: const Icon(Icons.fullscreen_rounded, size: 18),
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -215,11 +306,11 @@ class _NowPlayingStage extends StatelessWidget {
         final artSize = compact
             ? 128.0
             : math
-                  .min(constraints.maxHeight - 52, constraints.maxWidth * 0.36)
-                  .clamp(164.0, 300.0);
+                  .min(constraints.maxHeight - 150, constraints.maxWidth * 0.28)
+                  .clamp(156.0, 244.0);
 
         return Padding(
-          padding: EdgeInsets.all(compact ? 18 : 24),
+          padding: EdgeInsets.all(compact ? 14 : 20),
           child: compact
               ? _buildCompactStage(context, scheme, artSize)
               : _buildWideStage(context, scheme, artSize),
@@ -233,60 +324,85 @@ class _NowPlayingStage extends StatelessWidget {
     ColorScheme scheme,
     double artSize,
   ) {
-    final player = context.watch<PlayerProvider>();
+    final player = context.read<PlayerProvider>();
     final playlist = context.read<PlaylistProvider>();
 
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _AlbumArtwork(track: track, size: artSize),
-        const SizedBox(width: 28),
+        _StageHeader(
+          track: track,
+          contentView: contentView,
+          visualizerStyle: visualizerStyle,
+          playlistExpanded: playlistExpanded,
+          onContentViewChanged: onContentViewChanged,
+          onVisualizerStyleChanged: onVisualizerStyleChanged,
+          onTogglePlaylist: onTogglePlaylist,
+          onOpenFullscreen: onOpenFullscreen,
+        ),
+        const SizedBox(height: 16),
         Expanded(
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _StageHeader(
-                track: track,
-                contentView: contentView,
-                visualizerStyle: visualizerStyle,
-                playlistExpanded: playlistExpanded,
-                onContentViewChanged: onContentViewChanged,
-                onVisualizerStyleChanged: onVisualizerStyleChanged,
-                onTogglePlaylist: onTogglePlaylist,
-                onOpenFullscreen: onOpenFullscreen,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _AlbumArtwork(track: track, size: artSize),
               ),
-              const Spacer(),
-              Text(
-                track?.title ?? '未选择曲目',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 24,
-                  height: 1.12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
+              const SizedBox(width: 22),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      track?.title ?? '未选择曲目',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 23,
+                        height: 1.12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _artistText(track),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    PlaybackTimeline(player: player),
+                    const SizedBox(height: 12),
+                    LayoutBuilder(
+                      builder: (context, controlConstraints) {
+                        final compactControls =
+                            controlConstraints.maxWidth < 350;
+                        return Row(
+                          children: [
+                            PlaybackControls(
+                              player: player,
+                              playlist: playlist,
+                              compact: compactControls,
+                            ),
+                            const Spacer(),
+                            PlaybackVolume(
+                              player: player,
+                              compact: compactControls,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _artistText(track),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const Spacer(),
-              PlaybackTimeline(player: player),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  PlaybackControls(player: player, playlist: playlist),
-                  const Spacer(),
-                ],
               ),
             ],
           ),
@@ -300,7 +416,7 @@ class _NowPlayingStage extends StatelessWidget {
     ColorScheme scheme,
     double artSize,
   ) {
-    final player = context.watch<PlayerProvider>();
+    final player = context.read<PlayerProvider>();
     final playlist = context.read<PlaylistProvider>();
 
     return Column(
@@ -367,6 +483,7 @@ class _NowPlayingStage extends StatelessWidget {
               onChanged: onContentViewChanged,
               compact: true,
             ),
+            PlaybackVolume(player: player, compact: true),
           ],
         ),
         const SizedBox(height: 6),
@@ -421,36 +538,81 @@ class _StageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        _PlaybackState(track: track),
-        _ContentViewToggle(value: contentView, onChanged: onContentViewChanged),
-        const SizedBox(width: 6),
-        _VisualizerStyleButton(
-          style: visualizerStyle,
-          onChanged: onVisualizerStyleChanged,
-        ),
-        IconButton(
-          onPressed: onOpenFullscreen,
-          tooltip: '全屏频谱',
-          icon: const Icon(Icons.fullscreen_rounded, size: 19),
-          visualDensity: VisualDensity.compact,
-        ),
-        IconButton(
-          onPressed: onTogglePlaylist,
-          tooltip: playlistExpanded ? '收起播放队列' : '展开播放队列',
-          icon: Icon(
-            playlistExpanded
-                ? Icons.view_sidebar_rounded
-                : Icons.view_sidebar_outlined,
-            size: 19,
+    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    Widget controls({required bool compact}) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ContentViewToggle(
+            value: contentView,
+            onChanged: onContentViewChanged,
+            compact: compact,
           ),
-          visualDensity: VisualDensity.compact,
-        ),
-      ],
+          const SizedBox(width: 4),
+          _VisualizerStyleButton(
+            style: visualizerStyle,
+            onChanged: onVisualizerStyleChanged,
+            compact: compact,
+          ),
+          IconButton(
+            onPressed: onOpenFullscreen,
+            tooltip: '全屏频谱',
+            icon: const Icon(Icons.fullscreen_rounded, size: 18),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      );
+    }
+
+    final queueButton = IconButton(
+      onPressed: onTogglePlaylist,
+      tooltip: playlistExpanded ? '收起播放队列' : '展开播放队列',
+      icon: Icon(
+        playlistExpanded
+            ? Icons.view_sidebar_rounded
+            : Icons.view_sidebar_outlined,
+        size: 18,
+      ),
+      visualDensity: VisualDensity.compact,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: visual.panelMuted.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: visual.border),
+          ),
+          child: compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: _PlaybackState(track: track)),
+                        queueButton,
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: controls(compact: true),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: _PlaybackState(track: track)),
+                    const SizedBox(width: 8),
+                    controls(compact: false),
+                    queueButton,
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -493,12 +655,16 @@ class _PlaybackState extends StatelessWidget {
           const SizedBox(width: 9),
           Container(width: 1, height: 11, color: scheme.outlineVariant),
           const SizedBox(width: 9),
-          Text(
-            source,
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              source,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -517,12 +683,37 @@ class _AlbumArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final placeholder = ColoredBox(
-      color: scheme.surfaceContainerHighest,
+      color: scheme.surfaceContainerHigh,
       child: Center(
-        child: Icon(
-          Icons.album_rounded,
-          size: size * 0.32,
-          color: scheme.onSurfaceVariant.withValues(alpha: 0.68),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: size * 0.34,
+              height: size * 0.34,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: scheme.outline.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Icon(
+                Icons.music_note_rounded,
+                size: size * 0.15,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '暂无封面',
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: math.max(10, size * 0.04),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -659,7 +850,7 @@ class _VisualizerStyleButton extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(
-                    item.icon,
+                    item == style ? Icons.check_rounded : item.icon,
                     size: 18,
                     color: item == style ? scheme.primary : null,
                   ),

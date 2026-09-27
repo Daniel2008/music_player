@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/search_provider.dart';
 import '../../providers/api_settings_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../widgets/app_surfaces.dart';
 import '../widgets/search_results_compact_view.dart';
 
@@ -88,8 +89,9 @@ class _SearchPageState extends State<SearchPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
           child: AppPanel(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
                   children: [
@@ -136,10 +138,10 @@ class _SearchPageState extends State<SearchPage> {
                           : const Icon(Icons.search),
                       label: const Text('搜索'),
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size(96, 48),
+                        minimumSize: const Size(92, 44),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 16,
+                          horizontal: 18,
+                          vertical: 12,
                         ),
                       ),
                     ),
@@ -227,6 +229,7 @@ class _SearchPageState extends State<SearchPage> {
     required ValueChanged<String> onChanged,
   }) {
     final scheme = Theme.of(context).colorScheme;
+    final visual = Theme.of(context).extension<AppVisualTheme>()!;
     final selectedLabel = items.firstWhere((e) => e.$1 == value).$2;
 
     return PopupMenuButton<String>(
@@ -254,10 +257,10 @@ class _SearchPageState extends State<SearchPage> {
           )
           .toList(),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(6),
+          color: visual.panelMuted.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(color: scheme.outlineVariant),
         ),
         child: Row(

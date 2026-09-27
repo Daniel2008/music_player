@@ -83,6 +83,14 @@ extension VisualizerStyleExtension on VisualizerStyle {
     _ => false,
   };
 
+  bool get isFeatured => switch (this) {
+    VisualizerStyle.bars ||
+    VisualizerStyle.mirroredBars ||
+    VisualizerStyle.wave ||
+    VisualizerStyle.circular => true,
+    _ => false,
+  };
+
   int recommendedBarCount(double width) {
     final divisor = switch (this) {
       VisualizerStyle.dots => 13.0,

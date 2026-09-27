@@ -132,21 +132,20 @@ music_player/
 │   │   └── gd_music_api.dart
 │   ├── ui/                  # 用户界面
 │   │   ├── pages/           # 页面
-│   │   │   ├── favorites_page.dart
-│   │   │   ├── home_page.dart
+│   │   │   ├── favorites_workspace_page.dart
+│   │   │   ├── history_workspace_page.dart
 │   │   │   ├── main_layout.dart
-│   │   │   ├── player_page.dart
+│   │   │   ├── player_workspace_page_v2.dart
 │   │   │   ├── search_page.dart
 │   │   │   ├── settings_page.dart
 │   │   │   └── visualizer_fullscreen_page.dart
 │   │   └── widgets/         # 组件
-│   │       ├── controls.dart
 │   │       ├── equalizer_panel.dart
 │   │       ├── hotkey_binder.dart
 │   │       ├── lyric_view.dart
-│   │       ├── mini_player.dart
+│   │       ├── mini_player_v2.dart
+│   │       ├── playback_controls.dart
 │   │       ├── playlist_panel.dart
-│   │       ├── playlist_view.dart
 │   │       ├── theme_skin_bar.dart
 │   │       └── visualizer_view.dart
 │   ├── utils/               # 工具类
