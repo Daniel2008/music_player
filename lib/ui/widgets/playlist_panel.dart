@@ -90,7 +90,11 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
             scrollController: _scrollController,
             itemCount: tracks.length,
             itemExtent: _itemExtent,
-            onReorderItem: playlistProvider.reorderTrack,
+            // ignore: deprecated_member_use
+            onReorder: (oldIndex, newIndex) {
+              if (newIndex > oldIndex) newIndex -= 1;
+              playlistProvider.reorderTrack(oldIndex, newIndex);
+            },
             proxyDecorator: (child, index, animation) {
               return AnimatedBuilder(
                 animation: animation,
