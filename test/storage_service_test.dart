@@ -29,7 +29,7 @@ void main() {
     ]);
 
     final data =
-        jsonDecode(await File('${directory.path}\\state.json').readAsString())
+        jsonDecode(await File('${directory.path}/state.json').readAsString())
             as Map<String, dynamic>;
     expect((data['data'] as Map<String, dynamic>)['value'], 2);
   });
