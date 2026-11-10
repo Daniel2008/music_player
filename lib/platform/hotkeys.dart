@@ -23,14 +23,7 @@ class Hotkeys {
         if (p.isPlaying) {
           p.pause();
         } else {
-          final current = playlist.current;
-          if (current != null &&
-              current.path.isEmpty &&
-              p.duration == Duration.zero) {
-            await p.playTrackSmart(current, playlistProvider: playlist);
-          } else {
-            p.play();
-          }
+          await p.playOrResume(playlist.current, playlistProvider: playlist);
         }
       },
     );

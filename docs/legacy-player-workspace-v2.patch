@@ -1,0 +1,18 @@
+diff --git a/lib/ui/pages/player_workspace_page_v2.dart b/lib/ui/pages/player_workspace_page_v2.dart
+index 1d0fe6a..05eb927 100644
+--- a/lib/ui/pages/player_workspace_page_v2.dart
++++ b/lib/ui/pages/player_workspace_page_v2.dart
+@@ -200,7 +200,12 @@ class _PlayerWorkspacePageState extends State<PlayerWorkspacePage> {
+             ChangeNotifierProvider.value(value: playerProvider),
+             ChangeNotifierProvider.value(value: playlistProvider),
+           ],
+-          child: const VisualizerFullscreenPage(),
++          child: VisualizerFullscreenPage(
++            initialStyle: _visualizerStyle,
++            onStyleChanged: (style) {
++              if (mounted) setState(() => _visualizerStyle = style);
++            },
++          ),
+         ),
+         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+             FadeTransition(opacity: animation, child: child),

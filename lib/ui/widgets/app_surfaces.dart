@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../providers/theme_provider.dart';
+import '../theme/app_design.dart';
+import 'surface_texture.dart';
 
+/// 页面标题区：图标 + 眉标 + 标题 + 副标题 + 右侧操作。
 class AppPageHeader extends StatelessWidget {
   const AppPageHeader({
     super.key,
@@ -20,21 +22,29 @@ class AppPageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
+    final textStyles = context.textStyles;
 
     final heading = Row(
       children: [
         Container(
-          width: 38,
-          height: 38,
+          width: 42,
+          height: 42,
           decoration: BoxDecoration(
-            color: scheme.primary.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                scheme.primary.withValues(alpha: 0.2),
+                scheme.primaryContainer.withValues(alpha: 0.75),
+              ],
+            ),
+            borderRadius: AppRadius.mdAll,
+            border: Border.all(color: scheme.primary.withValues(alpha: 0.22)),
           ),
-          child: Icon(icon, size: 19, color: scheme.primary),
+          child: Icon(icon, size: 20, color: scheme.primary),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,32 +52,29 @@ class AppPageHeader extends StatelessWidget {
             children: [
               if (eyebrow != null)
                 Text(
-                  eyebrow!,
-                  style: TextStyle(
+                  eyebrow!.toUpperCase(),
+                  style: textStyles.labelSmall?.copyWith(
                     color: scheme.primary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0,
+                    letterSpacing: 1.1,
                   ),
                 ),
               Text(
                 title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                style: textStyles.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
-                  height: 1.15,
+                  height: 1.2,
                 ),
               ),
               if (subtitle != null) ...[
-                const SizedBox(height: 4),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   subtitle!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: textStyles.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
-                    fontSize: 12,
                   ),
                 ),
               ],
@@ -79,17 +86,26 @@ class AppPageHeader extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 820;
+        final compact = constraints.maxWidth < AppBreakpoints.compactHeader;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.page,
+            AppSpacing.page,
+            AppSpacing.page,
+            AppSpacing.md,
+          ),
           child: compact
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     heading,
                     if (actions.isNotEmpty) ...[
-                      const SizedBox(height: 14),
-                      Wrap(spacing: 8, runSpacing: 8, children: actions),
+                      const SizedBox(height: AppSpacing.md),
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
+                        children: actions,
+                      ),
                     ],
                   ],
                 )
@@ -97,12 +113,14 @@ class AppPageHeader extends StatelessWidget {
                   children: [
                     Expanded(child: heading),
                     if (actions.isNotEmpty) ...[
-                      const SizedBox(width: 18),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.end,
-                        children: actions,
+                      const SizedBox(width: AppSpacing.page),
+                      Flexible(
+                        child: Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          alignment: WrapAlignment.end,
+                          children: actions,
+                        ),
                       ),
                     ],
                   ],
@@ -113,14 +131,16 @@ class AppPageHeader extends StatelessWidget {
   }
 }
 
+/// 统一的卡片/面板容器，支持纹理与浮起层级。
 class AppPanel extends StatelessWidget {
   const AppPanel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(14),
+    this.padding = AppSpacing.cardInsets,
     this.color,
     this.elevated = false,
     this.clip = true,
+    this.texture,
   });
 
   final Widget child;
@@ -128,12 +148,17 @@ class AppPanel extends StatelessWidget {
   final Color? color;
   final bool elevated;
   final bool clip;
+  final SurfaceTextureKind? texture;
 
   @override
   Widget build(BuildContext context) {
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
-    final content = Padding(padding: padding, child: child);
-    final radius = BorderRadius.circular(8);
+    final visual = context.visual;
+    final isDark = context.isDark;
+    final padded = Padding(padding: padding, child: child);
+    final content = texture == null
+        ? padded
+        : TexturedSurface(kind: texture!, child: padded);
+    const radius = AppRadius.mdAll;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -141,15 +166,10 @@ class AppPanel extends StatelessWidget {
         borderRadius: radius,
         border: Border.all(color: visual.border),
         boxShadow: elevated
-            ? [
-                BoxShadow(
-                  color: visual.shadow,
-                  blurRadius: 18,
-                  spreadRadius: -4,
-                  offset: const Offset(0, 8),
-                ),
-              ]
-            : null,
+            ? AppShadows.elevated(visual.shadow)
+            : AppShadows.soft(
+                visual.shadow.withValues(alpha: isDark ? 0.14 : 0.045),
+              ),
       ),
       child: clip ? ClipRRect(borderRadius: radius, child: content) : content,
     );
@@ -170,7 +190,6 @@ class AppSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
         Expanded(
@@ -179,20 +198,18 @@ class AppSectionTitle extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 14,
+                style: context.textStyles.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
               if (subtitle != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.xxs),
                 Text(
                   subtitle!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant,
+                  style: context.textStyles.labelSmall?.copyWith(
+                    color: context.scheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -205,6 +222,7 @@ class AppSectionTitle extends StatelessWidget {
   }
 }
 
+/// 统一的媒体列表行：选中态、悬浮态与拖拽态视觉一致。
 class AppMediaRow extends StatelessWidget {
   const AppMediaRow({
     super.key,
@@ -214,7 +232,10 @@ class AppMediaRow extends StatelessWidget {
     this.subtitle,
     this.onTap,
     this.selected = false,
-    this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    this.padding = const EdgeInsets.symmetric(
+      horizontal: AppSpacing.md,
+      vertical: AppSpacing.sm,
+    ),
   });
 
   final String title;
@@ -227,28 +248,27 @@ class AppMediaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    final scheme = context.scheme;
+    final visual = context.visual;
 
-    final radius = BorderRadius.circular(8);
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.normal,
+      curve: AppMotion.curve,
       decoration: BoxDecoration(
         color: selected ? visual.selected : Colors.transparent,
-        borderRadius: radius,
+        borderRadius: AppRadius.smAll,
         border: Border.all(
           color: selected
-              ? scheme.primary.withValues(alpha: 0.18)
+              ? scheme.primary.withValues(alpha: 0.24)
               : Colors.transparent,
         ),
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: radius,
+        borderRadius: AppRadius.smAll,
         child: InkWell(
           onTap: onTap,
-          borderRadius: radius,
+          borderRadius: AppRadius.smAll,
           hoverColor: visual.hover,
           highlightColor: scheme.primary.withValues(alpha: 0.08),
           child: Padding(
@@ -259,14 +279,18 @@ class AppMediaRow extends StatelessWidget {
                   Container(
                     width: 3,
                     height: 28,
-                    margin: const EdgeInsets.only(right: 9),
+                    margin: const EdgeInsets.only(right: AppSpacing.sm),
                     decoration: BoxDecoration(
-                      color: scheme.primary,
-                      borderRadius: BorderRadius.circular(3),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [scheme.primary, scheme.tertiary],
+                      ),
+                      borderRadius: AppRadius.xsAll,
                     ),
                   ),
                 leading,
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,9 +300,8 @@ class AppMediaRow extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.2,
+                        style: context.textStyles.titleSmall?.copyWith(
+                          height: 1.25,
                           fontWeight: selected
                               ? FontWeight.w700
                               : FontWeight.w600,
@@ -286,13 +309,12 @@ class AppMediaRow extends StatelessWidget {
                         ),
                       ),
                       if (subtitle != null) ...[
-                        const SizedBox(height: 3),
+                        const SizedBox(height: AppSpacing.xxs + 1),
                         Text(
                           subtitle!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
+                          style: context.textStyles.bodySmall?.copyWith(
                             height: 1.25,
                             color: scheme.onSurfaceVariant,
                           ),
@@ -301,12 +323,62 @@ class AppMediaRow extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                trailing,
+                const SizedBox(width: AppSpacing.sm),
+                Flexible(child: trailing),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 统一的封面容器：占位渐变、圆角、加载与错误回退。
+class AppCover extends StatelessWidget {
+  const AppCover({
+    super.key,
+    this.imageProvider,
+    this.size = 44,
+    this.icon = Icons.music_note_rounded,
+  });
+
+  final ImageProvider? imageProvider;
+  final double size;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    final placeholder = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primaryContainer, scheme.secondaryContainer],
+        ),
+      ),
+      child: Icon(icon, size: size * 0.4, color: scheme.onPrimaryContainer),
+    );
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: AppRadius.smAll,
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      child: ClipRRect(
+        borderRadius: AppRadius.xsAll,
+        child: imageProvider == null
+            ? placeholder
+            : Image(
+                image: imageProvider!,
+                fit: BoxFit.cover,
+                frameBuilder: (context, child, frame, _) =>
+                    frame == null ? placeholder : child,
+                errorBuilder: (context, error, stackTrace) => placeholder,
+              ),
       ),
     );
   }
@@ -328,50 +400,64 @@ class AppEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
+    final visual = context.visual;
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 54,
-              height: 54,
+              width: 64,
+              height: 64,
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).extension<AppVisualTheme>()!.panelMuted,
-                borderRadius: BorderRadius.circular(8),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    scheme.primary.withValues(alpha: 0.18),
+                    visual.panelMuted,
+                  ],
+                ),
+                borderRadius: AppRadius.lgAll,
                 border: Border.all(
-                  color: scheme.primary.withValues(alpha: 0.12),
+                  color: scheme.primary.withValues(alpha: 0.18),
+                ),
+                boxShadow: AppShadows.glow(
+                  scheme.primary,
+                  alpha: context.isDark ? 0.14 : 0.08,
                 ),
               ),
-              child: Icon(icon, size: 24, color: scheme.primary),
+              child: Icon(icon, size: 28, color: scheme.primary),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpacing.lg),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              style: context.textStyles.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             if (description != null) ...[
-              const SizedBox(height: 7),
+              const SizedBox(height: AppSpacing.sm),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 360),
+                constraints: const BoxConstraints(maxWidth: 380),
                 child: Text(
                   description!,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.5,
+                  style: context.textStyles.bodySmall?.copyWith(
+                    height: 1.6,
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
               ),
             ],
-            if (action != null) ...[const SizedBox(height: 18), action!],
+            if (action != null) ...[
+              const SizedBox(height: AppSpacing.xl),
+              action!,
+            ],
           ],
         ),
       ),

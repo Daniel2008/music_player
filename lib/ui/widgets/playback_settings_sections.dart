@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../providers/api_settings_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
+import '../theme/app_design.dart';
 import 'download_manager_sheet.dart';
 import 'settings_widgets.dart';
 
@@ -39,18 +40,20 @@ class MusicSourceSettingsSection extends StatelessWidget {
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
+                              horizontal: AppSpacing.sm - 2,
+                              vertical: AppSpacing.xxs,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.green.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
+                              color: context.visual.success.withValues(
+                                alpha: 0.16,
+                              ),
+                              borderRadius: AppRadius.xsAll,
                             ),
-                            child: const Text(
+                            child: Text(
                               '稳定',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.green,
+                              style: context.textStyles.labelSmall?.copyWith(
+                                fontSize: AppTypeScale.micro,
+                                color: context.visual.success,
                               ),
                             ),
                           ),
@@ -63,8 +66,17 @@ class MusicSourceSettingsSection extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(selectedSource, style: TextStyle(color: scheme.primary)),
-                Icon(Icons.arrow_drop_down, color: scheme.primary),
+                Text(
+                  selectedSource,
+                  style: context.textStyles.labelLarge?.copyWith(
+                    color: scheme.primary,
+                  ),
+                ),
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: scheme.primary,
+                ),
               ],
             ),
           ),
@@ -79,18 +91,14 @@ class MusicSourceSettingsSection extends StatelessWidget {
                 .map(
                   (source) => CheckboxListTile(
                     title: Text(source.name),
-                    subtitle: source.isStable
-                        ? const Text(
-                            '稳定',
-                            style: TextStyle(color: Colors.green, fontSize: 12),
-                          )
-                        : const Text(
-                            '可能不稳定',
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontSize: 12,
-                            ),
-                          ),
+                    subtitle: Text(
+                      source.isStable ? '稳定' : '可能不稳定',
+                      style: context.textStyles.bodySmall?.copyWith(
+                        color: source.isStable
+                            ? context.visual.success
+                            : context.visual.warning,
+                      ),
+                    ),
                     value: apiSettings.enabledSources.contains(source.id),
                     onChanged: (value) {
                       apiSettings.toggleSource(source.id, value ?? false);
@@ -256,12 +264,9 @@ class LyricSettingsSection extends StatelessWidget {
         const Divider(height: 1),
         SettingsTile(
           title: '歌词缓存',
-          subtitle:
-              '已缓存 ${playerProvider.lyricService.localLyricPaths.length} 首本地歌曲歌词',
+          subtitle: '清理应用下载的歌词，保留音乐文件同目录的歌词',
           trailing: TextButton(
-            onPressed: playerProvider.lyricService.localLyricPaths.isEmpty
-                ? null
-                : () => _confirmClearLyricCache(context),
+            onPressed: () => _confirmClearLyricCache(context),
             child: const Text('清除'),
           ),
         ),
@@ -274,21 +279,27 @@ class LyricSettingsSection extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('清除歌词缓存'),
-        content: Text(
-          '确定要清除所有已缓存的本地歌曲歌词吗？（共 ${playerProvider.lyricService.localLyricPaths.length} 首）',
-        ),
+        content: const Text('清除应用保存的本地与在线歌词缓存？音乐文件同目录的歌词会保留。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
-              playerProvider.lyricService.localLyricPaths.clear();
-              Navigator.pop(context);
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('歌词缓存已清除')));
+            onPressed: () async {
+              try {
+                await playerProvider.lyricService.clearCachedLyrics();
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('歌词缓存已清除')));
+              } catch (_) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('歌词缓存清理失败，请稍后重试')));
+              }
             },
             child: const Text('清除'),
           ),
@@ -323,7 +334,9 @@ class _QualitySelector extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text(
                     quality.description,
-                    style: TextStyle(fontSize: 12, color: scheme.outline),
+                    style: context.textStyles.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -333,8 +346,17 @@ class _QualitySelector extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(currentQuality.label, style: TextStyle(color: scheme.primary)),
-          Icon(Icons.arrow_drop_down, color: scheme.primary),
+          Text(
+            currentQuality.label,
+            style: context.textStyles.labelLarge?.copyWith(
+              color: scheme.primary,
+            ),
+          ),
+          Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: 18,
+            color: scheme.primary,
+          ),
         ],
       ),
     );

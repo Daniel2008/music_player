@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../providers/player_provider.dart';
 
-/// 10段均衡器面板（基于 SoLoud 原生 Biquad 滤波器）
+import '../../providers/player_provider.dart';
+import '../theme/app_design.dart';
+
+/// 8 段均衡器面板（基于 SoLoud 原生 Biquad 滤波器）
 class EqualizerPanel extends StatefulWidget {
   const EqualizerPanel({super.key});
 
@@ -29,7 +31,7 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -38,16 +40,16 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
           children: [
             Text(
               '均衡器',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
+              style: context.textStyles.titleSmall?.copyWith(
                 color: scheme.onSurface,
               ),
             ),
             const Spacer(),
             Text(
               _enabled ? '已启用' : '已禁用',
-              style: TextStyle(fontSize: 12, color: scheme.outline),
+              style: context.textStyles.labelMedium?.copyWith(
+                color: _enabled ? scheme.primary : scheme.onSurfaceVariant,
+              ),
             ),
             Switch(
               value: _enabled,
@@ -63,7 +65,7 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.sm),
         SizedBox(
           height: 160,
           child: Row(
@@ -71,7 +73,9 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
               final gain = (_gains[i] - 0.5) * (_maxDb - _minDb);
               return Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xxs,
+                  ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -79,9 +83,13 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
                         gain >= 0
                             ? '+${gain.toStringAsFixed(0)}'
                             : gain.toStringAsFixed(0),
-                        style: TextStyle(fontSize: 9, color: scheme.outline),
+                        style: context.textStyles.labelSmall?.copyWith(
+                          fontSize: AppTypeScale.micro,
+                          color: scheme.onSurfaceVariant,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: AppSpacing.xs),
                       Expanded(
                         child: GestureDetector(
                           onTapDown: (d) {
@@ -93,10 +101,11 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
                           child: Container(
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: AppRadius.xsAll,
                               color: scheme.surfaceContainerHighest.withValues(
-                                alpha: 0.3,
+                                alpha: 0.4,
                               ),
+                              border: Border.all(color: context.visual.border),
                             ),
                             child: Column(
                               verticalDirection: VerticalDirection.up,
@@ -106,19 +115,17 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
                                   child: Container(
                                     width: double.infinity,
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(4),
+                                      borderRadius: AppRadius.xsAll,
                                       gradient: LinearGradient(
                                         begin: Alignment.bottomCenter,
                                         end: Alignment.topCenter,
                                         colors: _enabled
                                             ? [scheme.primary, scheme.tertiary]
                                             : [
-                                                scheme.outline.withValues(
-                                                  alpha: 0.3,
-                                                ),
-                                                scheme.outline.withValues(
-                                                  alpha: 0.15,
-                                                ),
+                                                scheme.onSurfaceVariant
+                                                    .withValues(alpha: 0.3),
+                                                scheme.onSurfaceVariant
+                                                    .withValues(alpha: 0.15),
                                               ],
                                       ),
                                     ),
@@ -133,10 +140,13 @@ class _EqualizerPanelState extends State<EqualizerPanel> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: AppSpacing.xxs),
                       Text(
                         _bands[i].label,
-                        style: TextStyle(fontSize: 10, color: scheme.outline),
+                        style: context.textStyles.labelSmall?.copyWith(
+                          fontSize: AppTypeScale.micro,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),

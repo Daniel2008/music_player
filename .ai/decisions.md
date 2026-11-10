@@ -511,3 +511,28 @@
 - 全量 `flutter test --no-pub --reporter compact`：83 项通过。
 - 旧实现删除后无生产代码或测试引用，历史决策记录保留不改。
 - 未重新构建 Windows 可执行文件，未进行真实音频播放、不同 DPI 和长时间人工视觉验收。
+
+## 2026-10-21 启动播放器
+
+- 按用户请求启动现有 Windows Release：build/windows/x64/runner/Release/music_player.exe。
+- 已确认进程持续运行并创建 Music Player 主窗口；未重新构建，未修改业务代码，未验证实际音频播放。
+
+
+## 2026-10-21 播放队列拖拽图标去重
+
+- 原因：ReorderableListView 默认桌面拖拽手柄与曲目行自定义 ReorderableDragStartListener 图标重叠。
+- 修复：在 PlaylistPanel 列表设置 buildDefaultDragHandles: false，保留已有自定义拖拽、悬停移除及排序回调；保留此前未提交改动。
+- 验证：修改文件静态分析、格式与差异检查通过；现有播放页布局及播放队列测试共 13 项通过；Windows Debug 编译、启动和热重载成功。
+- 启动环境：本次进程 PATH 需补齐 C:\Windows\System32\WindowsPowerShell\v1.0 和 D:\worksoft\.cargo\bin，并设置 CARGO_HOME；未修改系统环境变量。
+- 当前运行 Debug 版本；Release 未重新构建，真实音频播放及人工拖拽验收未执行。
+
+## 2026-10-21 界面纹理与频谱样式审查优化
+
+- 用户要求优化界面与频谱，并明确反馈单色界面单调、希望增加纹理。
+- 新增 TexturedSurface 静态材质层：频谱舞台使用细颗粒及淡弧线，侧栏使用织纹，播放条使用拉丝；纹理置于独立 RepaintBoundary，不监听音频帧，遵循当前深浅主题。
+- 播放舞台增加主题渐变；统一面板圆角与间距；侧栏选中态、封面占位及圆形主播放按钮增加色彩层次；歌词去除大范围文字光晕并提高远行最低可读性。
+- 样式标签与选择器合并，状态移至绘图区外；待机显示静态唱片插画；调整宽窄布局与队列高度，保留已有拖拽图标去重修复和其他未提交改动。
+- 频谱保留八种样式，优化邻近色相调色板、参考线透明度、点阵高度与镜像轮廓；仅绘制有效分段，静音不再显示色块墙；修复扫光描边画笔污染柱形填充、波形主线 shader 被低透明度颜色削弱的问题。
+- 验证：项目 dart analyze 通过；34 项相关测试通过，含 4 种内容区尺寸与深浅主题交互、八种频谱渲染、强节拍填充、静音与点阵高度回归；测试截图需在 tester.runAsync 内完成渲染与写盘并加载 MaterialIcons 字体。
+- 当前 Debug 热重载成功，运行错误工具未发现错误。已通过真实窗口查看深浅主题纹理；用户随后按 Esc 停止 Computer Use，已停止窗口操作。Release 未重新构建，真实音乐动态、长时间性能与多 DPI 验收未执行。
+- 合成数据频谱及布局预览位于 build/verification/style-review；与真实音频验收区分。

@@ -27,6 +27,8 @@ class PlaylistProvider extends ChangeNotifier {
   static const int _schemaVersion = 1;
   final Random _random = Random();
   Timer? _saveDebounce;
+  bool _dirty = false;
+  Future<void>? _pendingSave;
   late final Future<void> ready;
 
   PlayMode _playMode = PlayMode.loop;
@@ -306,12 +308,22 @@ class PlaylistProvider extends ChangeNotifier {
 
   /// 保存播放列表到本地存储（防抖动，避免过于频繁的磁盘写入）
   void _savePlaylist() {
+    _dirty = true;
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 500), _doSavePlaylist);
+    _saveDebounce = Timer(const Duration(milliseconds: 500), () {
+      unawaited(
+        _doSavePlaylist().catchError((Object e) => debugPrint('后台保存失败: $e')),
+      );
+    });
   }
 
   Future<void> _doSavePlaylist() async {
-    await StorageService.instance.writeJsonFile(
+    if (!_dirty) {
+      await _pendingSave;
+      return;
+    }
+    _dirty = false;
+    _pendingSave = StorageService.instance.writeJsonFile(
       fileName: _storageKey,
       currentSchemaVersion: _schemaVersion,
       encode: () => {
@@ -320,11 +332,20 @@ class PlaylistProvider extends ChangeNotifier {
         'tracks': playlist.tracks.map((t) => t.toJson()).toList(),
       },
     );
+    try {
+      await _pendingSave;
+    } catch (_) {
+      _dirty = true;
+      rethrow;
+    }
   }
 
   Future<void> flush() async {
     _saveDebounce?.cancel();
-    await _doSavePlaylist();
+    await ready;
+    do {
+      await _doSavePlaylist();
+    } while (_dirty);
   }
 
   /// 从本地存储加载播放列表
@@ -432,7 +453,7 @@ class PlaylistProvider extends ChangeNotifier {
   @override
   void dispose() {
     // 触发关闭前保存；应用生命周期可调用 flush() 等待完成。
-    unawaited(flush());
+    unawaited(flush().catchError((Object e) => debugPrint('退出保存失败: $e')));
     super.dispose();
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../providers/theme_provider.dart';
+import '../theme/app_design.dart';
 import 'settings_widgets.dart';
 
 class AppearanceSettingsSection extends StatelessWidget {
@@ -21,23 +22,32 @@ class AppearanceSettingsSection extends StatelessWidget {
             segments: const [
               ButtonSegment(
                 value: ThemeMode.light,
-                icon: Icon(Icons.light_mode),
+                icon: Icon(Icons.light_mode_rounded, size: 18),
               ),
               ButtonSegment(
                 value: ThemeMode.system,
-                icon: Icon(Icons.brightness_auto),
+                icon: Icon(Icons.brightness_auto_rounded, size: 18),
               ),
-              ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode)),
+              ButtonSegment(
+                value: ThemeMode.dark,
+                icon: Icon(Icons.dark_mode_rounded, size: 18),
+              ),
             ],
             selected: {theme.mode},
             onSelectionChanged: (selection) => theme.setMode(selection.first),
+            showSelectedIcon: false,
           ),
         ),
-        const Divider(height: 1),
+        Divider(height: 1, color: context.visual.border),
         SettingsTile(
           title: '主题皮肤',
-          subtitle: '选择预设皮肤或自定义',
+          subtitle: '选择预设主题色，界面配色会同步变化',
           onTap: () => _showSkinPicker(context),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            size: 20,
+            color: context.scheme.onSurfaceVariant,
+          ),
         ),
       ],
     );
@@ -57,92 +67,146 @@ class AppearanceSettingsSection extends StatelessWidget {
   void _showSkinPicker(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('选择主题色', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text(
-                '选择一种颜色作为应用的主题色',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.outline,
-                  fontSize: 14,
-                ),
+        builder: (context, setSheetState) {
+          final scheme = Theme.of(context).colorScheme;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.lg,
               ),
-              const SizedBox(height: 20),
-              Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: ThemeProvider.presetColors.map((preset) {
-                  final isSelected =
-                      theme.seedColor.toARGB32() == preset.color.toARGB32();
-                  return InkWell(
-                    onTap: () {
-                      theme.setSeedColor(preset.color);
-                      setSheetState(() {});
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      width: 72,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isSelected
-                              ? preset.color
-                              : Theme.of(
-                                  context,
-                                ).colorScheme.outline.withValues(alpha: 0.3),
-                          width: isSelected ? 2.5 : 1,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                        color: isSelected
-                            ? preset.color.withValues(alpha: 0.1)
-                            : null,
-                      ),
-                      child: Column(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color:
+                      Theme.of(context).dialogTheme.backgroundColor ??
+                      scheme.surfaceContainerHigh,
+                  borderRadius: AppRadius.lgAll,
+                  border: Border.all(color: context.visual.border),
+                ),
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              CircleAvatar(
-                                backgroundColor: preset.color,
-                                radius: 18,
-                              ),
-                              if (isSelected)
-                                const Icon(
-                                  Icons.check_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                            ],
+                          Icon(
+                            Icons.palette_outlined,
+                            size: 20,
+                            color: scheme.primary,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(width: AppSpacing.sm),
                           Text(
-                            preset.name,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                              color: isSelected
-                                  ? preset.color
-                                  : Theme.of(context).colorScheme.onSurface,
-                            ),
+                            '选择主题色',
+                            style: Theme.of(context).textTheme.titleLarge,
                           ),
                         ],
                       ),
-                    ),
-                  );
-                }).toList(),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        '选择一种颜色作为应用主题色，背景与强调色会一起调整。',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      Wrap(
+                        spacing: AppSpacing.md,
+                        runSpacing: AppSpacing.md,
+                        children: ThemeProvider.presetColors.map((preset) {
+                          final isSelected =
+                              theme.seedColor.toARGB32() ==
+                              preset.color.toARGB32();
+                          final onSeed = preset.color.computeLuminance() > 0.5
+                              ? const Color(0xFF1A1A1A)
+                              : Colors.white;
+                          return AnimatedContainer(
+                            duration: AppMotion.normal,
+                            curve: AppMotion.curve,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? preset.color.withValues(alpha: 0.12)
+                                  : scheme.surfaceContainerHigh.withValues(
+                                      alpha: 0.6,
+                                    ),
+                              borderRadius: AppRadius.mdAll,
+                              border: Border.all(
+                                color: isSelected
+                                    ? preset.color
+                                    : scheme.outlineVariant.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: InkWell(
+                              onTap: () {
+                                theme.setSeedColor(preset.color);
+                                setSheetState(() {});
+                              },
+                              borderRadius: AppRadius.mdAll,
+                              hoverColor: preset.color.withValues(alpha: 0.08),
+                              child: SizedBox(
+                                width: 80,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(AppSpacing.md),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: preset.color,
+                                          shape: BoxShape.circle,
+                                          boxShadow: isSelected
+                                              ? AppShadows.glow(
+                                                  preset.color,
+                                                  alpha: 0.35,
+                                                )
+                                              : null,
+                                        ),
+                                        child: isSelected
+                                            ? Icon(
+                                                Icons.check_rounded,
+                                                color: onSeed,
+                                                size: 22,
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(height: AppSpacing.sm),
+                                      Text(
+                                        preset.name,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium
+                                            ?.copyWith(
+                                              color: isSelected
+                                                  ? scheme.primary
+                                                  : scheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }

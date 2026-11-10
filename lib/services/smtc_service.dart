@@ -73,7 +73,7 @@ class SmtcService {
     AppLog.d('SMTC 按键: $btn');
     switch (btn) {
       case PressedButton.play:
-        _player.play();
+        _player.playOrResume(_playlist.current, playlistProvider: _playlist);
         break;
       case PressedButton.pause:
         _player.pause();

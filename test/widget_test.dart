@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 // Widget tests for Music Player
 //
@@ -192,7 +193,7 @@ void main() {
     },
   );
 
-  test('SpectrumPainter leaves headroom for full-level bars', () async {
+  test('SpectrumPainter fills the viewport for full-level bars', () async {
     const width = 320;
     const height = 240;
     final recorder = ui.PictureRecorder();
@@ -224,7 +225,7 @@ void main() {
     final pixels = byteData!.buffer.asUint8List();
     int alphaAt(int x, int y) => pixels[(y * width + x) * 4 + 3];
 
-    expect(alphaAt(4, 48), lessThan(10));
+    expect(alphaAt(4, 48), greaterThan(120));
     expect(alphaAt(4, 96), greaterThan(120));
     image.dispose();
     picture.dispose();
@@ -261,20 +262,75 @@ void main() {
     final pixels = byteData!.buffer.asUint8List();
 
     int colorDistance(int firstX, int secondX) {
-      final firstOffset = (120 * 640 + firstX) * 4;
-      final secondOffset = (120 * 640 + secondX) * 4;
+      const sampleY = 180;
+      final firstOffset = (sampleY * 640 + firstX) * 4;
+      final secondOffset = (sampleY * 640 + secondX) * 4;
       final red = pixels[firstOffset] - pixels[secondOffset];
       final green = pixels[firstOffset + 1] - pixels[secondOffset + 1];
       final blue = pixels[firstOffset + 2] - pixels[secondOffset + 2];
       return red * red + green * green + blue * blue;
     }
 
-    expect(colorDistance(300, 320), greaterThan(6000));
-    expect(colorDistance(320, 340), greaterThan(6000));
-    expect(colorDistance(300, 340), greaterThan(6000));
+    expect(colorDistance(289, 320), greaterThan(1000));
+    expect(colorDistance(320, 351), greaterThan(1000));
+    expect(colorDistance(289, 351), greaterThan(1000));
     image.dispose();
     picture.dispose();
     repaint.dispose();
+  });
+
+  test('SpectrumPainter dynamic phase changes the visual frame', () async {
+    Future<ui.Image> render(double phase) async {
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      final repaint = ValueNotifier<int>(0);
+      SpectrumPainter(
+        repaint: repaint,
+        levels: List<double>.filled(32, 0.72),
+        peaks: List<double>.filled(32, 0.8),
+        barCount: 32,
+        style: VisualizerStyle.bars,
+        color: const Color(0xFF5B6ABF),
+        secondaryColor: const Color(0xFF4B8FC7),
+        tertiaryColor: const Color(0xFF8C63C7),
+        surfaceColor: const Color(0xFF0D1117),
+        faintColor: const Color(0x335B6ABF),
+        particles: const [],
+        history: const [],
+        historyHead: 0,
+        beatIntensity: 0.7,
+        phase: phase,
+        enableGlow: true,
+        showGuides: false,
+      ).paint(canvas, const Size(640, 240));
+      repaint.dispose();
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(640, 240);
+      picture.dispose();
+      return image;
+    }
+
+    final first = await render(0);
+    final second = await render(math.pi);
+    final firstData = (await first.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    ))!.buffer.asUint8List();
+    final secondData = (await second.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    ))!.buffer.asUint8List();
+
+    var changedPixels = 0;
+    for (var i = 0; i < firstData.length; i += 4) {
+      final distance =
+          (firstData[i] - secondData[i]).abs() +
+          (firstData[i + 1] - secondData[i + 1]).abs() +
+          (firstData[i + 2] - secondData[i + 2]).abs();
+      if (distance > 12) changedPixels++;
+    }
+
+    expect(changedPixels, greaterThan(100));
+    first.dispose();
+    second.dispose();
   });
 
   testWidgets('PlaylistProvider 集成到 widget', (tester) async {

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../models/track.dart';
+import '../theme/app_design.dart';
 import 'app_surfaces.dart';
 
 /// 播放工作区右侧的紧凑播放列表面板。
@@ -18,8 +21,8 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
   String? _lastScrolledTrackId;
   bool _userJustClicked = false;
 
-  /// itemExtent — 为双行文本和拖拽操作保留稳定的 60 px 行高
-  static const double _itemExtent = 60.0;
+  /// itemExtent — 为双行文本和拖拽操作保留稳定的行高
+  static const double _itemExtent = AppSpacing.mediaRowHeight;
 
   @override
   void dispose() {
@@ -87,6 +90,8 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
         _buildHeader(playlistProvider, scheme, context),
         Expanded(
           child: ReorderableListView.builder(
+            // 曲目行已有自定义拖拽手柄，避免桌面端叠加默认图标。
+            buildDefaultDragHandles: false,
             scrollController: _scrollController,
             itemCount: tracks.length,
             itemExtent: _itemExtent,
@@ -119,7 +124,7 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
                     scale: scale,
                     child: Material(
                       elevation: elevation,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: AppRadius.mdAll,
                       shadowColor: scheme.primary.withValues(alpha: 0.3),
                       child: child,
                     ),
@@ -143,9 +148,27 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
                   final playerProvider = context.read<PlayerProvider>();
                   if (playlistProvider.currentIndex >= 0 &&
                       playlistProvider.currentIndex < tracks.length) {
-                    playerProvider.playTrackSmart(
-                      playlistProvider.current!,
-                      playlistProvider: playlistProvider,
+                    // 播放失败必须给出提示，否则点击后毫无反馈
+                    // （例如本地音频文件已被移动或删除）。
+                    final messenger = ScaffoldMessenger.of(context);
+                    unawaited(
+                      playerProvider
+                          .playTrackSmart(
+                            playlistProvider.current!,
+                            playlistProvider: playlistProvider,
+                          )
+                          .then((ok) {
+                            if (ok || !messenger.mounted) return;
+                            messenger
+                              ..clearSnackBars()
+                              ..showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    playerProvider.playError ?? '播放失败',
+                                  ),
+                                ),
+                              );
+                          }),
                     );
                   }
                 },
@@ -164,7 +187,12 @@ class _PlaylistPanelState extends State<PlaylistPanel> {
     BuildContext context,
   ) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 2, 10),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xs,
+        0,
+        AppSpacing.xxs,
+        AppSpacing.sm + 2,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -329,9 +357,8 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
               : Text(
                   '${widget.index + 1}',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: context.textStyles.labelSmall?.copyWith(
                     color: scheme.onSurfaceVariant,
-                    fontSize: 11,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
@@ -343,7 +370,7 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
             children: [
               AnimatedOpacity(
                 opacity: showRemove ? 1 : 0,
-                duration: const Duration(milliseconds: 120),
+                duration: AppMotion.instant,
                 child: IgnorePointer(
                   ignoring: !showRemove,
                   child: _PlaylistRemoveButton(
@@ -356,7 +383,7 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
               const SizedBox(width: 10),
               AnimatedOpacity(
                 opacity: showDragHandle ? 1 : 0,
-                duration: const Duration(milliseconds: 120),
+                duration: AppMotion.instant,
                 child: IgnorePointer(
                   ignoring: !showDragHandle,
                   child: ReorderableDragStartListener(
@@ -372,7 +399,7 @@ class _CompactPlaylistTrackTileState extends State<_CompactPlaylistTrackTile> {
                             color: _hovered
                                 ? scheme.primary.withValues(alpha: 0.08)
                                 : Colors.transparent,
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: AppRadius.xsAll,
                           ),
                           child: Icon(
                             Icons.drag_indicator_rounded,
@@ -419,105 +446,9 @@ class _PlaylistRemoveButton extends StatelessWidget {
         foregroundColor: color,
         hoverColor: hoverColor.withValues(alpha: 0.1),
         highlightColor: hoverColor.withValues(alpha: 0.08),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.xsAll),
       ),
       icon: const Icon(Icons.close_rounded, size: 15),
-    );
-  }
-}
-
-/// 播放列表中的单个曲目条目
-// ignore: unused_element
-class _PlaylistTrackTile extends StatelessWidget {
-  const _PlaylistTrackTile({
-    required this.track,
-    required this.index,
-    required this.isPlaying,
-    required this.isDark,
-    required this.onTap,
-    required this.onRemove,
-  });
-  final Track track;
-  final int index;
-  final bool isPlaying;
-  final bool isDark;
-  final VoidCallback onTap;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: isPlaying
-            ? scheme.primaryContainer.withValues(alpha: isDark ? 0.25 : 0.35)
-            : Colors.transparent,
-        border: isPlaying
-            ? Border.all(color: scheme.primary.withValues(alpha: 0.2), width: 1)
-            : null,
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          hoverColor: scheme.primary.withValues(alpha: 0.06),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                // 序号或播放图标
-                SizedBox(
-                  width: 28,
-                  child: isPlaying
-                      ? _PlayingIndicator(color: scheme.primary)
-                      : Text(
-                          '${index + 1}',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: scheme.outline, fontSize: 13),
-                        ),
-                ),
-                const SizedBox(width: 10),
-                // 歌曲标题
-                Expanded(
-                  child: Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: isPlaying
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                      color: isPlaying ? scheme.primary : scheme.onSurface,
-                    ),
-                  ),
-                ),
-                // 操作按钮
-                IconButton(
-                  icon: Icon(Icons.close, size: 16, color: scheme.outline),
-                  visualDensity: VisualDensity.compact,
-                  tooltip: '移除',
-                  onPressed: onRemove,
-                ),
-                ReorderableDragStartListener(
-                  index: index,
-                  child: Icon(
-                    Icons.drag_handle,
-                    size: 18,
-                    color: scheme.outline.withValues(alpha: 0.5),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

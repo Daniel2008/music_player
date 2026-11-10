@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../theme/app_design.dart';
 
 class PlaybackControls extends StatelessWidget {
   const PlaybackControls({
@@ -19,34 +20,49 @@ class PlaybackControls extends StatelessWidget {
   final bool compact;
   final bool showMode;
 
-  Future<void> _togglePlayback() async {
+  Future<void> _togglePlayback(BuildContext context) async {
     if (player.isPlaying) {
       await player.pause();
       return;
     }
 
-    final current = playlist.current;
-    if (current != null && player.duration == Duration.zero) {
-      await player.playTrackSmart(current, playlistProvider: playlist);
-    } else {
-      await player.play();
-    }
+    final ok = await player.playOrResume(
+      playlist.current,
+      playlistProvider: playlist,
+    );
+    if (context.mounted) _reportIfFailed(context, ok);
   }
 
-  Future<void> _previous() async {
+  Future<void> _previous(BuildContext context) async {
     playlist.previous();
     final current = playlist.current;
     if (current != null) {
-      await player.playTrackSmart(current, playlistProvider: playlist);
+      final ok = await player.playTrackSmart(
+        current,
+        playlistProvider: playlist,
+      );
+      if (context.mounted) _reportIfFailed(context, ok);
     }
   }
 
-  Future<void> _next() async {
+  Future<void> _next(BuildContext context) async {
     playlist.next();
     final current = playlist.current;
     if (current != null) {
-      await player.playTrackSmart(current, playlistProvider: playlist);
+      final ok = await player.playTrackSmart(
+        current,
+        playlistProvider: playlist,
+      );
+      if (context.mounted) _reportIfFailed(context, ok);
     }
+  }
+
+  /// 播放失败时弹出提示，避免用户点击后没有任何反馈。
+  void _reportIfFailed(BuildContext context, bool ok) {
+    if (ok || !context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(player.playError ?? '播放失败')));
   }
 
   @override
@@ -65,23 +81,23 @@ class PlaybackControls extends StatelessWidget {
             size: sideButtonSize,
             iconSize: sideIconSize - 2,
           ),
-        if (showMode) SizedBox(width: compact ? 2 : 8),
+        if (showMode) const SizedBox(width: AppSpacing.sm),
         IconButton(
-          onPressed: _previous,
+          onPressed: () => _previous(context),
           tooltip: '上一首',
           icon: Icon(Icons.skip_previous_rounded, size: sideIconSize),
           style: IconButton.styleFrom(minimumSize: Size.square(sideButtonSize)),
         ),
-        SizedBox(width: compact ? 4 : 10),
+        SizedBox(width: compact ? AppSpacing.xs : AppSpacing.sm + 2),
         _PlayPauseButton(
           player: player,
-          onPressed: _togglePlayback,
+          onPressed: () => _togglePlayback(context),
           size: playButtonSize,
           iconSize: playIconSize,
         ),
-        SizedBox(width: compact ? 4 : 10),
+        SizedBox(width: compact ? AppSpacing.xs : AppSpacing.sm + 2),
         IconButton(
-          onPressed: _next,
+          onPressed: () => _next(context),
           tooltip: '下一首',
           icon: Icon(Icons.skip_next_rounded, size: sideIconSize),
           style: IconButton.styleFrom(minimumSize: Size.square(sideButtonSize)),
@@ -130,7 +146,7 @@ class _PlaybackModeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
     return ListenableBuilder(
       listenable: playlist,
       builder: (context, _) {
@@ -147,7 +163,7 @@ class _PlaybackModeButton extends StatelessWidget {
           style: IconButton.styleFrom(
             minimumSize: Size.square(size),
             backgroundColor: active
-                ? scheme.primaryContainer.withValues(alpha: 0.65)
+                ? scheme.primaryContainer.withValues(alpha: 0.7)
                 : Colors.transparent,
           ),
         );
@@ -171,29 +187,44 @@ class _PlayPauseButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
     return ListenableBuilder(
       listenable: player,
       builder: (context, _) {
         final isPlaying = player.isPlaying;
-        return IconButton.filled(
-          onPressed: onPressed,
-          tooltip: isPlaying ? '暂停' : '播放',
-          icon: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 160),
-            transitionBuilder: (child, animation) =>
-                ScaleTransition(scale: animation, child: child),
-            child: Icon(
-              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              key: ValueKey(isPlaying),
-              size: iconSize,
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                scheme.primary,
+                Color.lerp(scheme.primary, scheme.tertiary, 0.55)!,
+              ],
             ),
+            boxShadow: AppShadows.glow(scheme.primary, alpha: 0.3),
           ),
-          style: IconButton.styleFrom(
-            minimumSize: Size.square(size),
-            backgroundColor: scheme.primary,
-            foregroundColor: scheme.onPrimary,
-            elevation: 0,
+          child: IconButton.filled(
+            onPressed: onPressed,
+            tooltip: isPlaying ? '暂停' : '播放',
+            icon: AnimatedSwitcher(
+              duration: AppMotion.fast,
+              transitionBuilder: (child, animation) =>
+                  ScaleTransition(scale: animation, child: child),
+              child: Icon(
+                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                key: ValueKey(isPlaying),
+                size: iconSize,
+              ),
+            ),
+            style: IconButton.styleFrom(
+              minimumSize: Size.square(size),
+              backgroundColor: Colors.transparent,
+              foregroundColor: scheme.onPrimary,
+              shape: const CircleBorder(),
+              elevation: 0,
+            ),
           ),
         );
       },
@@ -231,7 +262,7 @@ class _PlaybackTimelineState extends State<PlaybackTimeline> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
 
     return AnimatedBuilder(
       animation: widget.player.timelineListenable,
@@ -246,7 +277,7 @@ class _PlaybackTimelineState extends State<PlaybackTimeline> {
 
         final slider = SliderTheme(
           data: SliderTheme.of(context).copyWith(
-            trackHeight: widget.compact ? 2 : 3,
+            trackHeight: widget.compact ? 3 : 4,
             activeTrackColor: scheme.primary,
             inactiveTrackColor: scheme.surfaceContainerHighest.withValues(
               alpha: 0.78,
@@ -281,17 +312,18 @@ class _PlaybackTimelineState extends State<PlaybackTimeline> {
           return SizedBox(height: widget.compact ? 20 : 28, child: slider);
         }
 
+        final labelStyle = context.textStyles.labelSmall?.copyWith(
+          color: scheme.onSurfaceVariant,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        );
+
         return Row(
           children: [
             SizedBox(
               width: widget.compact ? 36 : 44,
               child: Text(
                 _format(Duration(milliseconds: positions.round())),
-                style: TextStyle(
-                  fontSize: widget.compact ? 10 : 11,
-                  color: scheme.onSurfaceVariant,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+                style: labelStyle,
               ),
             ),
             Expanded(child: slider),
@@ -300,11 +332,7 @@ class _PlaybackTimelineState extends State<PlaybackTimeline> {
               child: Text(
                 _format(player.duration),
                 textAlign: TextAlign.end,
-                style: TextStyle(
-                  fontSize: widget.compact ? 10 : 11,
-                  color: scheme.onSurfaceVariant,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+                style: labelStyle,
               ),
             ),
           ],
@@ -329,7 +357,7 @@ class PlaybackVolume extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
     return ValueListenableBuilder<double>(
       valueListenable: player.volumeNotifier,
       builder: (context, value, _) {
@@ -341,7 +369,7 @@ class PlaybackVolume extends StatelessWidget {
               size: compact ? 17 : 19,
               color: scheme.onSurfaceVariant,
             ),
-            SizedBox(width: compact ? 2 : 6),
+            SizedBox(width: compact ? AppSpacing.xxs : AppSpacing.xs + 2),
             SizedBox(
               width: compact ? 72 : 112,
               child: SliderTheme(

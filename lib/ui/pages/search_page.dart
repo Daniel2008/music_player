@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../providers/search_provider.dart';
+
 import '../../providers/api_settings_provider.dart';
-import '../../providers/theme_provider.dart';
+import '../../providers/search_provider.dart';
+import '../theme/app_design.dart';
 import '../widgets/app_surfaces.dart';
 import '../widgets/search_results_compact_view.dart';
 
@@ -73,7 +74,6 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final searchProvider = context.watch<SearchProvider>();
     final apiSettings = context.watch<ApiSettingsProvider>();
-    final scheme = Theme.of(context).colorScheme;
 
     // 确保有默认值
     final currentSource = _source ?? apiSettings.defaultSource;
@@ -87,72 +87,91 @@ class _SearchPageState extends State<SearchPage> {
           icon: Icons.search_rounded,
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.page,
+            0,
+            AppSpacing.page,
+            AppSpacing.md,
+          ),
           child: AppPanel(
-            padding: const EdgeInsets.all(12),
+            padding: AppSpacing.cardInsets,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          hintText: '搜索歌曲、歌手、专辑...',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          suffixIcon: _hasText
-                              ? IconButton(
-                                  icon: const Icon(Icons.close_rounded),
-                                  tooltip: '清空搜索',
-                                  onPressed: () {
-                                    _controller.clear();
-                                    searchProvider.clearSearch();
-                                  },
-                                )
-                              : null,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                        ),
-                        onSubmitted: (_) => _search(searchProvider),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final field = TextField(
+                      controller: _controller,
+                      focusNode: _focusNode,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: '搜索歌曲、歌手、专辑...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: _hasText
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded),
+                                tooltip: '清空搜索',
+                                onPressed: () {
+                                  _controller.clear();
+                                  searchProvider.clearSearch();
+                                },
+                              )
+                            : null,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
+                      onSubmitted: (_) => _search(searchProvider),
+                    );
+                    final button = FilledButton.icon(
                       onPressed: searchProvider.isSearching
                           ? null
                           : () => _search(searchProvider),
                       icon: searchProvider.isSearching
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.white,
+                                color: context.scheme.onPrimary,
                               ),
                             )
-                          : const Icon(Icons.search),
+                          : const Icon(Icons.search_rounded),
                       label: const Text('搜索'),
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size(92, 44),
+                        minimumSize: const Size(
+                          92,
+                          AppSpacing.controlHeight + 4,
+                        ),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
+                          horizontal: AppSpacing.lg,
+                          vertical: AppSpacing.md,
                         ),
                       ),
-                    ),
-                  ],
+                    );
+
+                    // 窄窗口时按钮换到下一行，避免输入框被压得太窄。
+                    if (constraints.maxWidth < 420) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          field,
+                          const SizedBox(height: AppSpacing.md),
+                          button,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: field),
+                        const SizedBox(width: AppSpacing.md),
+                        button,
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: AppSpacing.md),
                 Wrap(
-                  spacing: 10,
-                  runSpacing: 8,
+                  spacing: AppSpacing.sm + 2,
+                  runSpacing: AppSpacing.sm,
                   children: [
-                    // 音乐源选择
                     _buildChipSelector(
                       context: context,
                       label: '音乐源',
@@ -165,7 +184,6 @@ class _SearchPageState extends State<SearchPage> {
                         }
                       },
                     ),
-                    // 音质选择
                     _buildChipSelector(
                       context: context,
                       label: '音质',
@@ -181,13 +199,18 @@ class _SearchPageState extends State<SearchPage> {
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.page,
+              0,
+              AppSpacing.page,
+              AppSpacing.sm,
+            ),
             child: searchProvider.searchError != null
-                ? _buildErrorState(scheme, searchProvider)
+                ? _buildErrorState(searchProvider)
                 : searchProvider.isSearching
                 ? const CompactSearchLoadingList()
                 : searchProvider.searchResults.isEmpty
-                ? _buildEmptyState(scheme)
+                ? _buildEmptyState()
                 : CompactSearchResultList(
                     items: searchProvider.searchResults,
                     quality: currentQuality,
@@ -198,8 +221,7 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  /// 空状态
-  Widget _buildEmptyState(ColorScheme scheme) {
+  Widget _buildEmptyState() {
     return const AppEmptyState(
       icon: Icons.manage_search_rounded,
       title: '开始搜索',
@@ -207,8 +229,7 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  /// 错误状态
-  Widget _buildErrorState(ColorScheme scheme, SearchProvider searchProvider) {
+  Widget _buildErrorState(SearchProvider searchProvider) {
     return AppEmptyState(
       icon: Icons.cloud_off_rounded,
       title: '搜索失败',
@@ -228,14 +249,15 @@ class _SearchPageState extends State<SearchPage> {
     required List<(String, String)> items,
     required ValueChanged<String> onChanged,
   }) {
-    final scheme = Theme.of(context).colorScheme;
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
-    final selectedLabel = items.firstWhere((e) => e.$1 == value).$2;
+    final scheme = context.scheme;
+    final visual = context.visual;
+    final match = items.where((e) => e.$1 == value).firstOrNull;
+    final selectedLabel = match?.$2 ?? value;
 
     return PopupMenuButton<String>(
       initialValue: value,
       onSelected: onChanged,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      tooltip: '选择$label',
       itemBuilder: (context) => items
           .map(
             (item) => PopupMenuItem(
@@ -249,32 +271,40 @@ class _SearchPageState extends State<SearchPage> {
                     size: 17,
                     color: item.$1 == value ? scheme.primary : scheme.outline,
                   ),
-                  const SizedBox(width: 10),
-                  Text(item.$2),
+                  const SizedBox(width: AppSpacing.sm + 2),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: Text(item.$2, overflow: TextOverflow.ellipsis),
+                  ),
                 ],
               ),
             ),
           )
           .toList(),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
         decoration: BoxDecoration(
-          color: visual.panelMuted.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: scheme.outlineVariant),
+          color: visual.accentSurface,
+          borderRadius: AppRadius.smAll,
+          border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               '$label  $selectedLabel',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              style: context.textStyles.labelMedium?.copyWith(
+                color: scheme.primary,
+              ),
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: AppSpacing.xs),
             Icon(
               Icons.keyboard_arrow_down_rounded,
               size: 17,
-              color: scheme.onSurfaceVariant,
+              color: scheme.primary,
             ),
           ],
         ),

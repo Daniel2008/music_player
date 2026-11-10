@@ -1,14 +1,19 @@
 import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
+
 import '../../providers/theme_provider.dart';
-import '../widgets/mini_player_v2.dart';
+import '../theme/app_design.dart';
 import '../widgets/hotkey_binder.dart';
-import 'player_workspace_page_v3.dart';
-import 'search_page.dart';
+import '../widgets/mini_player_v2.dart';
+import '../widgets/surface_texture.dart';
 import 'favorites_workspace_page.dart';
 import 'history_workspace_page.dart';
+import 'player_workspace_page_v3.dart';
+import 'search_page.dart';
 import 'settings_page.dart';
 
 class MainLayout extends StatefulWidget {
@@ -21,7 +26,7 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
   final bool _isDesktop =
-      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
   late final List<Widget?> _pages = [
     const PlayerWorkspacePage(),
@@ -84,35 +89,29 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
     final width = MediaQuery.sizeOf(context).width;
-    final isWide = width >= 1080;
-    final useBottomNavigation = width < 720;
-    final isDesktop = _isDesktop;
+    final isWide = width >= AppBreakpoints.wideRail;
+    final useBottomNavigation = width < AppBreakpoints.bottomNav;
 
     return Scaffold(
+      backgroundColor: context.scheme.surface,
       body: Stack(
         children: [
           const HotkeyBinder(),
           Column(
             children: [
-              // 自定义标题栏（仅桌面平台）
-              if (isDesktop) _buildTitleBar(context, scheme),
-              // 主内容
+              if (_isDesktop) _buildTitleBar(context),
               Expanded(
                 child: Row(
                   children: [
-                    // 小窗口切换为底部导航，避免内容区被侧栏挤压。
                     if (!useBottomNavigation)
-                      _buildNavigationRail(context, scheme, isDark, isWide),
-                    // 主内容区域
+                      _buildNavigationRail(context, isWide),
                     Expanded(
                       child: Column(
                         children: [
                           Expanded(
-                            // 使用 Offstage+TickerMode 代替 IndexedStack
-                            // 不可见页面的 Ticker 被禁用，动画自动暂停
+                            // 使用 Offstage+TickerMode 代替 IndexedStack：
+                            // 不可见页面的 Ticker 被禁用，动画自动暂停。
                             child: Stack(
                               children: [
                                 for (int i = 0; i < _pages.length; i++)
@@ -129,7 +128,7 @@ class _MainLayoutState extends State<MainLayout> {
                           ),
                           const MiniPlayer(),
                           if (useBottomNavigation)
-                            _buildBottomNavigation(context, scheme),
+                            _buildBottomNavigation(context),
                         ],
                       ),
                     ),
@@ -143,34 +142,43 @@ class _MainLayoutState extends State<MainLayout> {
     );
   }
 
-  Widget _buildTitleBar(BuildContext context, ColorScheme scheme) {
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+  Widget _buildTitleBar(BuildContext context) {
+    final scheme = context.scheme;
+    final visual = context.visual;
+
     return GestureDetector(
       onPanStart: (_) => windowManager.startDragging(),
       onDoubleTap: () async {
         if (await windowManager.isMaximized()) {
-          windowManager.unmaximize();
+          await windowManager.unmaximize();
         } else {
-          windowManager.maximize();
+          await windowManager.maximize();
         }
       },
       child: Container(
-        height: 48,
+        height: AppSpacing.titleBarHeight,
         decoration: BoxDecoration(
           color: visual.sidebar,
-          border: Border(bottom: BorderSide(color: visual.border, width: 1)),
+          border: Border(bottom: BorderSide(color: visual.border)),
         ),
         child: Row(
           children: [
-            const SizedBox(width: 14),
+            const SizedBox(width: AppSpacing.lg),
             Container(
               width: 30,
               height: 30,
               decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    scheme.primary.withValues(alpha: 0.28),
+                    scheme.primaryContainer.withValues(alpha: 0.8),
+                  ],
+                ),
+                borderRadius: AppRadius.smAll,
                 border: Border.all(
-                  color: scheme.primary.withValues(alpha: 0.22),
+                  color: scheme.primary.withValues(alpha: 0.24),
                 ),
               ),
               child: Icon(
@@ -179,11 +187,10 @@ class _MainLayoutState extends State<MainLayout> {
                 color: scheme.primary,
               ),
             ),
-            const SizedBox(width: 9),
+            const SizedBox(width: AppSpacing.sm + 1),
             Text(
               'Music Player',
-              style: TextStyle(
-                fontSize: 13,
+              style: context.textStyles.titleSmall?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: scheme.onSurface,
               ),
@@ -192,23 +199,20 @@ class _MainLayoutState extends State<MainLayout> {
             _buildWindowButton(
               icon: Icons.remove_rounded,
               onPressed: () => windowManager.minimize(),
-              scheme: scheme,
             ),
             _buildWindowButton(
               icon: Icons.crop_square_rounded,
               onPressed: () async {
                 if (await windowManager.isMaximized()) {
-                  windowManager.unmaximize();
+                  await windowManager.unmaximize();
                 } else {
-                  windowManager.maximize();
+                  await windowManager.maximize();
                 }
               },
-              scheme: scheme,
             ),
             _buildWindowButton(
               icon: Icons.close_rounded,
               onPressed: () => windowManager.close(),
-              scheme: scheme,
               isClose: true,
             ),
           ],
@@ -220,159 +224,186 @@ class _MainLayoutState extends State<MainLayout> {
   Widget _buildWindowButton({
     required IconData icon,
     required VoidCallback onPressed,
-    required ColorScheme scheme,
     bool isClose = false,
   }) {
+    final scheme = context.scheme;
+    final hoverColor = isClose ? scheme.error : scheme.primary;
     return SizedBox(
       width: 44,
-      height: 48,
+      height: AppSpacing.titleBarHeight,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
-          hoverColor: isClose
-              ? const Color(0xFFE81123).withValues(alpha: 0.9)
-              : scheme.onSurface.withValues(alpha: 0.08),
-          child: Icon(
-            icon,
-            size: 15,
-            color: scheme.onSurface.withValues(alpha: 0.7),
-          ),
+          hoverColor: hoverColor.withValues(alpha: isClose ? 0.85 : 0.12),
+          child: Icon(icon, size: 15, color: scheme.onSurfaceVariant),
         ),
       ),
     );
   }
 
-  Widget _buildNavigationRail(
-    BuildContext context,
-    ColorScheme scheme,
-    bool isDark,
-    bool isWide,
-  ) {
+  Widget _buildNavigationRail(BuildContext context, bool isWide) {
+    final scheme = context.scheme;
+    final visual = context.visual;
     final theme = context.read<ThemeProvider>();
+    final isDark = context.isDark;
 
     return Container(
       width: isWide ? 204 : 72,
       decoration: BoxDecoration(
-        color: Theme.of(context).extension<AppVisualTheme>()!.sidebar,
-        border: Border(
-          right: BorderSide(
-            color: Theme.of(context).extension<AppVisualTheme>()!.border,
-            width: 1,
-          ),
+        color: visual.sidebar,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(
+              scheme.primary.withValues(alpha: isDark ? 0.075 : 0.045),
+              visual.sidebar,
+            ),
+            visual.sidebar,
+          ],
         ),
+        border: Border(right: BorderSide(color: visual.border)),
       ),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          if (isWide)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '音乐库',
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0,
+      child: TexturedSurface(
+        kind: SurfaceTextureKind.woven,
+        child: Column(
+          children: [
+            const SizedBox(height: AppSpacing.lg),
+            if (isWide)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  0,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '音乐库',
+                    style: context.textStyles.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      letterSpacing: 1.2,
+                    ),
                   ),
                 ),
               ),
-            ),
-          // 导航项
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
-                children: [
-                  for (int i = 0; i < _navItems.length; i++) ...[
-                    _buildNavItem(context, i, scheme, isDark, isWide),
-                    if (i < _navItems.length - 1) const SizedBox(height: 2),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                child: Column(
+                  children: [
+                    for (int i = 0; i < _navItems.length; i++) ...[
+                      _buildNavItem(context, i, isWide),
+                      if (i < _navItems.length - 1)
+                        const SizedBox(height: AppSpacing.xxs),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          // 底部操作区域
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 主题切换按钮
-                _buildThemeToggle(context, theme, isDark, scheme),
-                const SizedBox(height: 8),
-              ],
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              child: _buildThemeToggle(context, theme, isDark),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildNavItem(
-    BuildContext context,
-    int index,
-    ColorScheme scheme,
-    bool isDark,
-    bool isWide,
-  ) {
+  Widget _buildNavItem(BuildContext context, int index, bool isWide) {
     final item = _navItems[index];
     final isSelected = _selectedIndex == index;
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    final scheme = context.scheme;
+    final visual = context.visual;
+    final isDark = context.isDark;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: isSelected ? 1.0 : 0.0),
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
+      duration: AppMotion.normal,
+      curve: AppMotion.curve,
       builder: (context, value, child) {
         return Material(
           color: Colors.transparent,
           child: InkWell(
             onTap: () => _onDestinationSelected(index),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppRadius.mdAll,
             hoverColor: visual.hover,
             splashColor: scheme.primary.withValues(alpha: 0.1),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            child: AnimatedContainer(
+              duration: AppMotion.normal,
+              curve: AppMotion.curve,
+              padding: const EdgeInsets.symmetric(
+                vertical: AppSpacing.sm,
+                horizontal: AppSpacing.sm,
+              ),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: AppRadius.mdAll,
                 color: isSelected ? visual.selected : Colors.transparent,
+                gradient: isSelected
+                    ? LinearGradient(
+                        colors: [
+                          scheme.primary.withValues(
+                            alpha: isDark ? 0.24 : 0.14,
+                          ),
+                          scheme.primary.withValues(alpha: 0.03),
+                        ],
+                      )
+                    : null,
+                border: Border.all(
+                  color: isSelected
+                      ? scheme.primary.withValues(alpha: 0.2)
+                      : Colors.transparent,
+                ),
               ),
               child: Row(
                 mainAxisAlignment: isWide
                     ? MainAxisAlignment.start
                     : MainAxisAlignment.center,
                 children: [
+                  if (isWide && isSelected)
+                    Container(
+                      width: 3,
+                      height: 22,
+                      margin: const EdgeInsets.only(right: AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [scheme.primary, scheme.tertiary],
+                        ),
+                        borderRadius: AppRadius.xsAll,
+                      ),
+                    ),
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    width: 32,
-                    height: 32,
+                    duration: AppMotion.normal,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
-                      color: isSelected
-                          ? scheme.primary.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
+                      color: isSelected ? scheme.primary : Colors.transparent,
+                      borderRadius: AppRadius.smAll,
+                      boxShadow: isSelected
+                          ? AppShadows.glow(scheme.primary, alpha: 0.22)
+                          : null,
                     ),
                     child: Icon(
                       isSelected ? item.selectedIcon : item.icon,
                       color: Color.lerp(
                         scheme.onSurfaceVariant,
-                        scheme.primary,
+                        scheme.onPrimary,
                         value,
                       ),
                       size: 20,
                     ),
                   ),
                   if (isWide) ...[
-                    const SizedBox(width: 8),
+                    const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: Text(
                         item.label,
-                        style: TextStyle(
-                          fontSize: 14,
+                        style: context.textStyles.titleSmall?.copyWith(
                           fontWeight: isSelected
                               ? FontWeight.w700
                               : FontWeight.w500,
@@ -394,17 +425,30 @@ class _MainLayoutState extends State<MainLayout> {
     );
   }
 
-  Widget _buildBottomNavigation(BuildContext context, ColorScheme scheme) {
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+  Widget _buildBottomNavigation(BuildContext context) {
+    final scheme = context.scheme;
+    final visual = context.visual;
+
     return SafeArea(
       top: false,
       child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        margin: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          0,
+          AppSpacing.md,
+          AppSpacing.md,
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs + 2,
+        ),
         decoration: BoxDecoration(
           color: visual.elevatedPanel,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: AppRadius.lgAll,
           border: Border.all(color: visual.border),
+          boxShadow: AppShadows.soft(
+            visual.shadow.withValues(alpha: context.isDark ? 0.2 : 0.08),
+          ),
         ),
         child: Row(
           children: [
@@ -416,15 +460,18 @@ class _MainLayoutState extends State<MainLayout> {
                   label: _navItems[i].label,
                   child: InkWell(
                     onTap: () => _onDestinationSelected(i),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: AppRadius.mdAll,
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      duration: AppMotion.normal,
+                      curve: AppMotion.curve,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.sm,
+                      ),
                       decoration: BoxDecoration(
                         color: _selectedIndex == i
                             ? visual.selected
                             : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: AppRadius.mdAll,
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -438,14 +485,13 @@ class _MainLayoutState extends State<MainLayout> {
                                 ? scheme.primary
                                 : scheme.onSurfaceVariant,
                           ),
-                          const SizedBox(height: 3),
+                          const SizedBox(height: AppSpacing.xxs + 1),
                           Text(
                             _navItems[i].label,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: _selectedIndex == i
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
+                            style: context.textStyles.labelSmall?.copyWith(
+                              color: _selectedIndex == i
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
                             ),
                           ),
                         ],
@@ -464,30 +510,27 @@ class _MainLayoutState extends State<MainLayout> {
     BuildContext context,
     ThemeProvider theme,
     bool isDark,
-    ColorScheme scheme,
   ) {
+    final scheme = context.scheme;
+    final visual = context.visual;
     return Tooltip(
       message: isDark ? '切换到浅色模式' : '切换到深色模式',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: () => theme.setMode(isDark ? ThemeMode.light : ThemeMode.dark),
-          borderRadius: BorderRadius.circular(8),
-          hoverColor: scheme.primary.withValues(alpha: 0.08),
+          borderRadius: AppRadius.mdAll,
+          hoverColor: scheme.primary.withValues(alpha: 0.1),
           child: Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).extension<AppVisualTheme>()!.elevatedPanel,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Theme.of(context).extension<AppVisualTheme>()!.border,
-              ),
+              color: visual.elevatedPanel,
+              borderRadius: AppRadius.mdAll,
+              border: Border.all(color: visual.border),
             ),
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
+              duration: AppMotion.medium,
               transitionBuilder: (child, animation) {
                 return RotationTransition(
                   turns: Tween(begin: 0.75, end: 1.0).animate(animation),

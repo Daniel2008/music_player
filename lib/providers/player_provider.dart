@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import '../models/track.dart';
@@ -9,15 +10,17 @@ import 'playlist_provider.dart';
 class PlayerProvider extends ChangeNotifier {
   PlayerProvider({
     GdMusicApiClient? gdApi,
+    SoLoud? soloud,
     bool Function()? shouldAutoFetchLocalLyric,
-  }) : _gdApi = gdApi ?? GdMusicApiClient(),
+  }) : _soloud = soloud ?? SoLoud.instance,
+       _gdApi = gdApi ?? GdMusicApiClient(),
        _ownsApi = gdApi == null,
        _shouldAutoFetchLocalLyric = shouldAutoFetchLocalLyric ?? (() => true) {
     _lyricService = LyricService(_gdApi);
     _lyricService.onLyricChanged = () => notifyListeners();
-    _init();
+    unawaited(_init());
   }
-  final SoLoud _soloud = SoLoud.instance;
+  final SoLoud _soloud;
   GdMusicApiClient _gdApi;
   final bool _ownsApi;
   final bool Function() _shouldAutoFetchLocalLyric;
@@ -30,6 +33,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _handlingCompletion = false;
   AudioData? _audioData;
   bool _disposed = false;
+  Future<void>? _initFuture;
+  Future<void> _releaseFuture = Future<void>.value();
 
   FutureOr<void> Function()? onTrackComplete;
 
@@ -58,9 +63,11 @@ class PlayerProvider extends ChangeNotifier {
   bool _equalizerEnabled = false;
   List<double> _equalizerGains = const [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
 
-  // 可视化只消费 FFT 前半段，紧凑为 128 个采样点以降低常驻缓冲和复制量。
-  // SoLoud linear 模式的前 256 个值就是完整 FFT 频谱。
+  // SoLoud linear: 256 FFT bins followed by 256 mixed waveform samples.
   final Float32List fftData = Float32List(256);
+  final Float32List waveformData = Float32List(256);
+  final Stopwatch _visualizationClock = Stopwatch()..start();
+  int _lastVisualizationMicros = -1;
   final Set<Object> _visualizerConsumers = <Object>{};
   bool _initialized = false;
 
@@ -68,40 +75,70 @@ class PlayerProvider extends ChangeNotifier {
     _gdApi = client;
   }
 
-  Future<void> _init() async {
+  Future<void> _init() {
+    if (_initialized) return Future<void>.value();
+    return _initFuture ??= _initializeSoLoud();
+  }
+
+  Future<void> _initializeSoLoud() async {
     try {
       await _soloud.init();
+      if (_disposed) return;
       _soloud.setVisualizationEnabled(false);
       // 降低平滑度，让鼓点和瞬态变化能及时反映到频谱。
       _soloud.setFftSmoothing(0.38);
-      _audioData = AudioData(GetSamplesKind.linear);
       _initialized = true;
       notifyListeners();
     } catch (e) {
       debugPrint('SoLoud 初始化失败: $e');
+      _initFuture = null;
     }
   }
 
-  void _updateAudioData() {
-    if (!_initialized ||
-        _audioData == null ||
+  void sampleVisualizationFrame() {
+    if (_disposed ||
+        !_initialized ||
         _visualizerConsumers.isEmpty ||
         !isPlaying ||
         _currentHandle == null) {
-      fftData.fillRange(0, fftData.length, 0);
+      _clearVisualizationData();
       return;
     }
+    final now = _visualizationClock.elapsedMicroseconds;
+    // Multiple visible consumers share one native read per display frame.
+    if (_lastVisualizationMicros >= 0 &&
+        now - _lastVisualizationMicros < 12000) {
+      return;
+    }
+    _lastVisualizationMicros = now;
     try {
+      _audioData ??= AudioData(GetSamplesKind.linear);
       _audioData!.updateSamples();
       final samples = _audioData!.getAudioData();
       if (samples.length >= fftData.length) {
         for (var i = 0; i < fftData.length; i++) {
           fftData[i] = samples[i];
         }
+      } else {
+        fftData.fillRange(0, fftData.length, 0);
+      }
+      if (samples.length >= fftData.length + waveformData.length) {
+        for (var i = 0; i < waveformData.length; i++) {
+          waveformData[i] = samples[fftData.length + i];
+        }
+      } else {
+        waveformData.fillRange(0, waveformData.length, 0);
       }
     } catch (e) {
+      _clearVisualizationData();
       debugPrint('更新音频数据失败: $e');
     }
+  }
+
+  void _clearVisualizationData() {
+    fftData.fillRange(0, fftData.length, 0);
+    waveformData.fillRange(0, waveformData.length, 0);
+    _lastVisualizationMicros = -1;
   }
 
   void setVisualizationConsumerActive(Object consumer, bool active) {
@@ -111,7 +148,7 @@ class PlayerProvider extends ChangeNotifier {
       _visualizerConsumers.remove(consumer);
     }
     if (_visualizerConsumers.isEmpty) {
-      fftData.fillRange(0, fftData.length, 0);
+      _clearVisualizationData();
     }
     if (isPlaying) {
       _setVisualizationEnabled(_visualizerConsumers.isNotEmpty);
@@ -129,15 +166,66 @@ class PlayerProvider extends ChangeNotifier {
 
   /// 用于检测快速切歌竞态的计数器
   int _playGeneration = 0;
+  int get requestGeneration => _playGeneration;
+
+  /// 本地曲目在交给原生引擎前先做存在性检查。
+  /// SoLoud 的 loadFile 在文件缺失时会从 C++ 侧抛出
+  /// SoLoudFileNotFoundException，该异常无法被 Dart try/catch 捕获。
+  static Future<bool> localAudioFileExists(String path) async {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return false;
+    try {
+      return await File(trimmed).exists();
+    } catch (e) {
+      debugPrint('检查本地音频文件失败: $e');
+      return false;
+    }
+  }
 
   Future<bool> playTrack(
     Track track, {
     bool preserveResolveGeneration = false,
+    int? requestGeneration,
   }) async {
+    if (_disposed) return false;
+    final myGeneration = requestGeneration ?? ++_playGeneration;
+    if (myGeneration != _playGeneration) return false;
+    if (!preserveResolveGeneration) {
+      _resolveGeneration++;
+      isResolvingUrl = false;
+    }
     if (!_initialized) await _init();
-    await stop(invalidateResolve: !preserveResolveGeneration);
+    if (_disposed || myGeneration != _playGeneration) return false;
+    if (!_initialized) {
+      playError = '音频引擎初始化失败，请重启应用后重试。';
+      notifyListeners();
+      return false;
+    }
 
-    final myGeneration = ++_playGeneration;
+    // 先校验播放地址，避免把必然失败的加载交给原生层。
+    final normalizedPath = track.path.trim();
+    if (track.isRemote) {
+      if (normalizedPath.isEmpty) {
+        playError = '播放失败：播放链接为空';
+        notifyListeners();
+        return false;
+      }
+    } else {
+      if (normalizedPath.isEmpty) {
+        playError = '播放失败：本地文件路径为空（${track.title}）';
+        notifyListeners();
+        return false;
+      }
+      final exists = await localAudioFileExists(normalizedPath);
+      if (_disposed || myGeneration != _playGeneration) return false;
+      if (!exists) {
+        playError = '播放失败：本地文件不存在或已被移动（${track.title}）';
+        notifyListeners();
+        return false;
+      }
+    }
+    await _stopPlayback();
+    if (_disposed || myGeneration != _playGeneration) return false;
     AudioSource? loadedSource;
 
     try {
@@ -146,7 +234,7 @@ class PlayerProvider extends ChangeNotifier {
           : await _soloud.loadFile(track.path, mode: LoadMode.disk);
 
       // 竞态保护：如果加载期间用户已切到下一首，释放这个孤儿 source
-      if (myGeneration != _playGeneration) {
+      if (_disposed || myGeneration != _playGeneration) {
         try {
           await _soloud.disposeSource(loadedSource);
         } catch (_) {}
@@ -183,7 +271,7 @@ class PlayerProvider extends ChangeNotifier {
         _cancelSoundEventSubscription();
         _setVisualizationEnabled(false);
         isPlaying = false;
-        fftData.fillRange(0, fftData.length, 0);
+        _clearVisualizationData();
         notifyListeners();
       } else if (loadedSource != null) {
         try {
@@ -217,7 +305,6 @@ class PlayerProvider extends ChangeNotifier {
             unawaited(_handleComplete(completedHandle: _currentHandle));
             return;
           }
-          _updateAudioData();
         } catch (e) {
           debugPrint('位置更新失败: $e');
         }
@@ -227,17 +314,23 @@ class PlayerProvider extends ChangeNotifier {
 
   void _listenForCompletion(AudioSource source, SoundHandle handle) {
     _cancelSoundEventSubscription();
-    _soundEventSubscription = source.soundEvents.listen((event) {
-      if (event.event != SoundEventType.handleIsNoMoreValid ||
-          event.handle.id != handle.id) {
-        return;
-      }
-      if (_currentSource != source || _currentHandle?.id != handle.id) return;
-      // 原生事件回调结束后再释放 source，避免在事件分发中关闭流。
-      scheduleMicrotask(() {
-        unawaited(_handleComplete(completedHandle: handle));
-      });
-    });
+    _soundEventSubscription = source.soundEvents.listen(
+      (event) {
+        if (event.event != SoundEventType.handleIsNoMoreValid ||
+            event.handle.id != handle.id) {
+          return;
+        }
+        if (_currentSource != source || _currentHandle?.id != handle.id) return;
+        // 原生事件回调结束后再释放 source，避免在事件分发中关闭流。
+        scheduleMicrotask(() {
+          unawaited(_handleComplete(completedHandle: handle));
+        });
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        // 事件流错误不应变成未处理异常；位置定时器仍会兜底检测播放结束。
+        debugPrint('音频事件流异常: $error');
+      },
+    );
   }
 
   void _cancelSoundEventSubscription() {
@@ -250,7 +343,10 @@ class PlayerProvider extends ChangeNotifier {
     GdSearchTrack item, {
     String br = '999',
     PlaylistProvider? playlistProvider,
+    int? playbackGeneration,
   }) async {
+    final generation = playbackGeneration ?? ++_playGeneration;
+    if (_disposed || generation != _playGeneration) return false;
     final requestGeneration = ++_resolveGeneration;
     final targetIndex = playlistProvider?.currentIndex;
     final targetTrackId = playlistProvider?.current?.id;
@@ -291,7 +387,11 @@ class PlayerProvider extends ChangeNotifier {
             playlistProvider.currentIndex,
             updatedTrack,
           );
-          return await playTrack(updatedTrack, preserveResolveGeneration: true);
+          return await playTrack(
+            updatedTrack,
+            preserveResolveGeneration: true,
+            requestGeneration: generation,
+          );
         }
       }
 
@@ -307,7 +407,11 @@ class PlayerProvider extends ChangeNotifier {
         remoteLyricId: item.lyricId ?? item.id,
         lyricKey: 'gd_${item.source}_${item.lyricId ?? item.id}',
       );
-      return await playTrack(track, preserveResolveGeneration: true);
+      return await playTrack(
+        track,
+        preserveResolveGeneration: true,
+        requestGeneration: generation,
+      );
     } catch (e) {
       if (requestGeneration == _resolveGeneration && !_disposed) {
         playError = _friendlyPlayError(e, source: item.source, br: br);
@@ -322,29 +426,41 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> playTrackSmart(
+  /// 播放曲目（智能处理本地/远程），返回是否成功播放。
+  Future<bool> playTrackSmart(
     Track track, {
     PlaylistProvider? playlistProvider,
     String? br,
   }) async {
     if (!track.isRemote) {
-      await playTrack(track);
-      return;
+      return await playTrack(track);
     }
     final quality = br ?? playQuality;
+    int? playbackGeneration;
     if (track.path.isNotEmpty &&
         (track.path.startsWith('http://') ||
             track.path.startsWith('https://'))) {
-      final played = await playTrack(track);
-      if (played) return;
-      if (track.remoteSource == null || track.remoteTrackId == null) return;
+      final pending = playTrack(track);
+      final generation = _playGeneration;
+      playbackGeneration = generation;
+      final played = await pending;
+      if (_disposed || generation != _playGeneration) return false;
+      if (played) return true;
+      if (track.remoteSource == null || track.remoteTrackId == null) {
+        return false;
+      }
+      _gdApi.invalidateTrackUrl(
+        source: track.remoteSource!,
+        id: track.remoteTrackId!,
+        br: quality,
+      );
     }
     final source = track.remoteSource;
     final trackId = track.remoteTrackId;
     if (source == null || trackId == null) {
       playError = '无法播放：缺少远程曲目信息';
       notifyListeners();
-      return;
+      return false;
     }
     final gdTrack = GdSearchTrack(
       id: trackId,
@@ -355,10 +471,11 @@ class PlayerProvider extends ChangeNotifier {
       lyricId: track.remoteLyricId,
       source: source,
     );
-    await resolveAndPlayTrackUrl(
+    return await resolveAndPlayTrackUrl(
       gdTrack,
       br: quality,
       playlistProvider: playlistProvider,
+      playbackGeneration: playbackGeneration,
     );
   }
 
@@ -379,6 +496,19 @@ class PlayerProvider extends ChangeNotifier {
     return '播放失败（源：$source，音质：$br）：${e.toString()}';
   }
 
+  Future<bool> playOrResume(
+    Track? track, {
+    PlaylistProvider? playlistProvider,
+  }) async {
+    if (_disposed) return false;
+    if (_currentHandle != null) {
+      await play();
+      return true;
+    }
+    if (track == null) return false;
+    return playTrackSmart(track, playlistProvider: playlistProvider);
+  }
+
   Future<void> play() async {
     if (_currentHandle != null) {
       _soloud.setPause(_currentHandle!, false);
@@ -395,7 +525,7 @@ class PlayerProvider extends ChangeNotifier {
       _positionTimer?.cancel();
       _setVisualizationEnabled(false);
       isPlaying = false;
-      fftData.fillRange(0, fftData.length, 0);
+      _clearVisualizationData();
       notifyListeners();
     }
   }
@@ -407,36 +537,37 @@ class PlayerProvider extends ChangeNotifier {
       _resolveGeneration++;
       isResolvingUrl = false;
     }
+    await _stopPlayback();
+  }
+
+  Future<void> _stopPlayback() {
+    final handle = _currentHandle;
+    final source = _currentSource;
+    _currentHandle = null;
+    _currentSource = null;
     _cancelSoundEventSubscription();
     _positionTimer?.cancel();
     _setVisualizationEnabled(false);
-    try {
-      if (_currentHandle != null) {
-        try {
-          await _soloud.stop(_currentHandle!);
-        } catch (e) {
-          debugPrint('停止播放失败: $e');
-        }
-        _currentHandle = null;
-      }
-      if (_currentSource != null) {
-        try {
-          await _soloud.disposeSource(_currentSource!);
-        } catch (e) {
-          debugPrint('释放音频源失败: $e');
-        }
-        _currentSource = null;
-      }
-    } catch (e) {
-      debugPrint('stop 整体异常: $e');
-      _currentHandle = null;
-      _currentSource = null;
-    }
     isPlaying = false;
-    positionNotifier.value = Duration.zero;
-    durationNotifier.value = Duration.zero;
-    fftData.fillRange(0, fftData.length, 0);
-    notifyListeners();
+    _clearVisualizationData();
+    if (!_disposed) {
+      positionNotifier.value = Duration.zero;
+      durationNotifier.value = Duration.zero;
+      notifyListeners();
+    }
+    // Capture resources before yielding; an older stop must never free a new source.
+    return _releaseFuture = _releaseFuture.then((_) async {
+      try {
+        if (handle != null) await _soloud.stop(handle);
+      } catch (e) {
+        debugPrint('停止播放失败: $e');
+      }
+      try {
+        if (source != null) await _soloud.disposeSource(source);
+      } catch (e) {
+        debugPrint('释放音频源失败: $e');
+      }
+    });
   }
 
   Future<void> seek(Duration d) async {
@@ -498,30 +629,11 @@ class PlayerProvider extends ChangeNotifier {
     }
 
     _handlingCompletion = true;
-    _positionTimer?.cancel();
-    _cancelSoundEventSubscription();
-    _setVisualizationEnabled(false);
+    final generation = _playGeneration;
 
     try {
-      // 释放已完成播放的音频资源，避免 native 内存泄漏。
-      try {
-        await _soloud.stop(currentHandle);
-      } catch (_) {}
-      _currentHandle = null;
-
-      final source = _currentSource;
-      _currentSource = null;
-      if (source != null) {
-        try {
-          await _soloud.disposeSource(source);
-        } catch (_) {}
-      }
-
-      isPlaying = false;
-      positionNotifier.value = Duration.zero;
-      durationNotifier.value = Duration.zero;
-      fftData.fillRange(0, fftData.length, 0);
-      notifyListeners();
+      await _stopPlayback();
+      if (_disposed || generation != _playGeneration) return;
 
       final callback = onTrackComplete;
       if (callback != null && !_disposed) {
@@ -541,6 +653,8 @@ class PlayerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _playGeneration++;
+    _lyricService.onLyricChanged = null;
     _cancelSoundEventSubscription();
     _positionTimer?.cancel();
     _setVisualizationEnabled(false);
@@ -548,9 +662,19 @@ class PlayerProvider extends ChangeNotifier {
     volumeNotifier.dispose();
     positionNotifier.dispose();
     durationNotifier.dispose();
-    if (_currentSource != null) _soloud.disposeSource(_currentSource!);
-    _soloud.deinit();
+    // 原生资源必须按 stop -> disposeSource -> deinit 的顺序释放，
+    // 否则会与 deinit 竞争，导致偶发的原生崩溃或资源泄漏。
+    unawaited(_disposeAudioResources());
     if (_ownsApi) _gdApi.close();
     super.dispose();
+  }
+
+  Future<void> _disposeAudioResources() async {
+    await _stopPlayback();
+    try {
+      _soloud.deinit();
+    } catch (e) {
+      debugPrint('dispose 释放音频引擎失败: $e');
+    }
   }
 }

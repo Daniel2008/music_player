@@ -8,6 +8,7 @@ import '../../providers/playlist_provider.dart';
 import '../../services/lyric_service.dart';
 import '../../utils/lrc_parser.dart';
 import '../../models/track.dart';
+import '../theme/app_design.dart';
 import 'lyric_widgets.dart';
 
 class LyricView extends StatefulWidget {
@@ -86,8 +87,13 @@ class _LyricViewState extends State<LyricView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const CircularProgressIndicator(),
-            const SizedBox(height: 12),
-            Text('正在加载歌词...', style: TextStyle(color: scheme.outline)),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              '正在加载歌词...',
+              style: context.textStyles.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       );
@@ -99,8 +105,13 @@ class _LyricViewState extends State<LyricView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const CircularProgressIndicator(),
-            const SizedBox(height: 12),
-            Text('正在搜索在线歌词...', style: TextStyle(color: scheme.outline)),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              '正在搜索在线歌词...',
+              style: context.textStyles.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       );
@@ -186,8 +197,8 @@ class _LyricViewState extends State<LyricView> {
         ),
         if (_userInteracting && idx >= 0)
           Positioned(
-            bottom: 12,
-            right: 12,
+            bottom: AppSpacing.md,
+            right: AppSpacing.md,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
@@ -195,22 +206,21 @@ class _LyricViewState extends State<LyricView> {
                   setState(() => _userInteracting = false);
                   _scrollToLine(idx);
                 },
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: AppRadius.pillAll,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
+                    horizontal: AppSpacing.lg,
+                    vertical: AppSpacing.sm,
                   ),
                   decoration: BoxDecoration(
                     color: scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.shadow.withValues(alpha: 0.15),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    borderRadius: AppRadius.pillAll,
+                    border: Border.all(
+                      color: scheme.primary.withValues(alpha: 0.18),
+                    ),
+                    boxShadow: AppShadows.soft(
+                      context.visual.shadow.withValues(alpha: 0.18),
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -220,12 +230,10 @@ class _LyricViewState extends State<LyricView> {
                         size: 16,
                         color: scheme.onPrimaryContainer,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: AppSpacing.xs),
                       Text(
                         '回到当前',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                        style: context.textStyles.labelMedium?.copyWith(
                           color: scheme.onPrimaryContainer,
                         ),
                       ),
@@ -261,8 +269,8 @@ class _LyricViewState extends State<LyricView> {
     final clampedOffset = targetOffset.clamp(0.0, maxOffset);
     _scrollController.animateTo(
       clampedOffset,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOutCubic,
+      duration: AppMotion.slow,
+      curve: AppMotion.emphasized,
     );
   }
 

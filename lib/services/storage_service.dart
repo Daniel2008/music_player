@@ -18,6 +18,8 @@ class StorageService {
   Future<SharedPreferences>? _prefsInit;
   Directory? _testDirectory;
   final Map<String, Future<void>> _writeChains = {};
+  final Set<String> _recoveredFiles = {};
+  final ValueNotifier<String?> writeError = ValueNotifier(null);
 
   Future<SharedPreferences> get prefs async {
     if (_prefs != null) return _prefs!;
@@ -58,32 +60,24 @@ class StorageService {
     try {
       final file = await _file(fileName);
       final backup = File('${file.path}.bak');
-      final source = await file.exists()
-          ? file
-          : await backup.exists()
-          ? backup
-          : null;
-      if (source == null) return null;
-      String content;
-      try {
-        content = await source.readAsString();
-      } catch (_) {
-        if (source.path == backup.path || !await backup.exists()) rethrow;
-        content = await backup.readAsString();
+      for (final source in [file, backup]) {
+        try {
+          if (!await source.exists()) continue;
+          final content = await source.readAsString();
+          if (content.trim().isEmpty) continue;
+          final data = jsonDecode(content);
+          if (data is! Map<String, dynamic>) continue;
+          final v = (data['_v'] as int?) ?? 0;
+          if (v > currentSchemaVersion) return null;
+          final decoded = decode(data['data'], v);
+          if (decoded == null) continue;
+          if (source == backup) _recoveredFiles.add(file.path);
+          return decoded;
+        } catch (e) {
+          debugPrint('StorageService.readJsonFile($fileName) 尝试恢复: $e');
+        }
       }
-      if (content.isEmpty) return null;
-      dynamic data;
-      try {
-        data = jsonDecode(content);
-      } catch (_) {
-        if (source.path == backup.path || !await backup.exists()) rethrow;
-        data = jsonDecode(await backup.readAsString());
-      }
-      if (data is! Map<String, dynamic>) return null;
-      final v = (data['_v'] as int?) ?? 0;
-      if (v > currentSchemaVersion) return null; // 未来版本
-      final raw = data['data'];
-      return decode(raw, v);
+      return null;
     } catch (e) {
       debugPrint('StorageService.readJsonFile($fileName) 失败: $e');
       return null;
@@ -106,11 +100,13 @@ class StorageService {
       ),
     );
     late final Future<void> tracked;
-    tracked = next.whenComplete(() {
-      if (identical(_writeChains[fileName], tracked)) {
-        _writeChains.remove(fileName);
-      }
-    });
+    tracked = next
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_writeChains[fileName], tracked)) {
+            _writeChains.remove(fileName);
+          }
+        });
     _writeChains[fileName] = tracked;
     await next;
   }
@@ -129,10 +125,14 @@ class StorageService {
         'data': encode(),
       });
       await tmp.writeAsString(payload, flush: true);
-      if (await backup.exists()) await backup.delete();
-      if (await file.exists()) await file.rename(backup.path);
+      if (!_recoveredFiles.contains(file.path)) {
+        if (await backup.exists()) await backup.delete();
+        if (await file.exists()) await file.rename(backup.path);
+      }
       try {
         await tmp.rename(file.path);
+        _recoveredFiles.remove(file.path);
+        if (writeError.value == '无法保存 $fileName') writeError.value = null;
       } catch (_) {
         if (!await file.exists() && await backup.exists()) {
           await backup.rename(file.path);
@@ -141,12 +141,16 @@ class StorageService {
       }
     } catch (e) {
       debugPrint('StorageService.writeJsonFile($fileName) 失败: $e');
+      writeError.value = '无法保存 $fileName';
+      rethrow;
     }
   }
 
   @visibleForTesting
   void setTestDirectory(Directory? directory) {
     _testDirectory = directory;
+    _recoveredFiles.clear();
+    writeError.value = null;
   }
 
   Future<File> _file(String fileName) async {

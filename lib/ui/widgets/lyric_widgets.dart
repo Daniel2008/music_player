@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/track.dart';
+import '../theme/app_design.dart';
 
 class LyricLineTile extends StatelessWidget {
   const LyricLineTile({
@@ -18,58 +19,58 @@ class LyricLineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
 
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 24),
+      child: AnimatedContainer(
+        duration: AppMotion.medium,
+        curve: AppMotion.curve,
+        padding: const EdgeInsets.symmetric(
+          vertical: 7,
+          horizontal: AppSpacing.xl,
+        ),
+        decoration: BoxDecoration(
+          color: isActive
+              ? scheme.primary.withValues(alpha: 0.08)
+              : Colors.transparent,
+          borderRadius: AppRadius.mdAll,
+        ),
         child: Row(
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: 3,
-              height: isActive ? 24 : 0,
-              margin: const EdgeInsets.only(right: 12),
+              duration: AppMotion.medium,
+              curve: AppMotion.curve,
+              width: isActive ? 3 : 0,
+              height: 24,
+              margin: EdgeInsets.only(right: isActive ? AppSpacing.md : 0),
               decoration: BoxDecoration(
-                color: isActive ? scheme.primary : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [scheme.primary, scheme.tertiary],
+                ),
+                borderRadius: AppRadius.xsAll,
                 boxShadow: isActive
-                    ? [
-                        BoxShadow(
-                          color: scheme.primary.withValues(alpha: 0.4),
-                          blurRadius: 6,
-                        ),
-                      ]
-                    : [],
+                    ? AppShadows.glow(scheme.primary, alpha: 0.35)
+                    : null,
               ),
             ),
             Expanded(
               child: AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutCubic,
+                duration: AppMotion.medium,
+                curve: AppMotion.curve,
                 style: TextStyle(
-                  fontSize: isActive ? 20 : 15,
+                  fontSize: isActive
+                      ? AppTypeScale.title
+                      : AppTypeScale.body + 1,
                   fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
                   color: isActive
                       ? scheme.primary
                       : scheme.onSurfaceVariant.withValues(
-                          alpha: distanceAlpha,
+                          alpha: distanceAlpha.clamp(0.5, 1.0),
                         ),
                   height: 1.35,
-                  letterSpacing: 0,
-                  shadows: isActive
-                      ? [
-                          Shadow(
-                            color: scheme.primary.withValues(alpha: 0.4),
-                            blurRadius: 16,
-                          ),
-                          Shadow(
-                            color: scheme.primary.withValues(alpha: 0.15),
-                            blurRadius: 32,
-                          ),
-                        ]
-                      : [],
                 ),
                 child: Text(text, textAlign: TextAlign.center, softWrap: true),
               ),
@@ -101,42 +102,62 @@ class LyricEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.lyrics_outlined,
-              size: 48,
-              color: scheme.outline.withValues(alpha: 0.5),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    scheme.primary.withValues(alpha: 0.18),
+                    context.visual.panelMuted,
+                  ],
+                ),
+                borderRadius: AppRadius.lgAll,
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: 0.16),
+                ),
+              ),
+              child: Icon(
+                Icons.lyrics_outlined,
+                size: 30,
+                color: scheme.primary,
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             Text(
               error ?? '暂无歌词',
-              style: TextStyle(color: scheme.outline, fontSize: 16),
+              style: context.textStyles.titleMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppSpacing.xl),
             if (isLocal && current != null) ...[
               FilledButton.icon(
-                icon: const Icon(Icons.search),
+                icon: const Icon(Icons.search_rounded),
                 label: const Text('搜索在线歌词'),
                 onPressed: onSearch,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               TextButton.icon(
-                icon: const Icon(Icons.edit, size: 18),
+                icon: const Icon(Icons.edit_rounded, size: 18),
                 label: const Text('自定义关键词搜索'),
                 onPressed: onCustomSearch,
               ),
             ],
             if (current != null && current!.isRemote) ...[
               FilledButton.icon(
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.refresh_rounded),
                 label: const Text('重新获取歌词'),
                 onPressed: onRefetch,
               ),
@@ -156,7 +177,7 @@ Future<String?> showCustomLyricSearchDialog(
   try {
     return await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('自定义搜索歌词'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -164,36 +185,26 @@ Future<String?> showCustomLyricSearchDialog(
           children: [
             Text(
               '输入歌曲名或歌手名进行搜索：',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.outline,
-                fontSize: 14,
+              style: dialogContext.textStyles.bodySmall?.copyWith(
+                color: dialogContext.scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: controller,
               autofocus: true,
-              decoration: InputDecoration(
-                hintText: '例如：歌曲名 - 歌手',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-              ),
-              onSubmitted: (value) => Navigator.pop(context, value),
+              decoration: const InputDecoration(hintText: '例如：歌曲名 - 歌手'),
+              onSubmitted: (value) => Navigator.pop(dialogContext, value),
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
             child: const Text('搜索'),
           ),
         ],

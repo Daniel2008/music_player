@@ -28,6 +28,11 @@ dependencies:
   url_launcher: ^6.3.0
   smtc_windows: ^1.1.0
 
+# smtc_windows 1.1.0 ships generated bindings for flutter_rust_bridge 2.11.1.
+# Keep the runtime pinned until the plugin publishes matching 2.12+ code.
+dependency_overrides:
+  flutter_rust_bridge: 2.11.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

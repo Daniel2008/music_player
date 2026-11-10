@@ -8,6 +8,7 @@ import '../../providers/favorites_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../services/gd_music_api.dart';
+import '../theme/app_design.dart';
 import '../widgets/app_surfaces.dart';
 
 class FavoritesWorkspacePage extends StatefulWidget {
@@ -60,7 +61,12 @@ class _FavoritesWorkspacePageState extends State<FavoritesWorkspacePage> {
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.page,
+              0,
+              AppSpacing.page,
+              AppSpacing.md,
+            ),
             child: AppPanel(
               padding: EdgeInsets.zero,
               child: favorites.isEmpty
@@ -132,7 +138,7 @@ class _FavoriteRow extends StatelessWidget {
         track.album,
         track.source,
       ].where((text) => text.isNotEmpty).join('  ·  '),
-      leading: _FavoriteCover(
+      leading: AppCover(
         imageProvider: coverUrl == null
             ? null
             : coverImageProvider(coverUrl, size: 44),
@@ -174,46 +180,6 @@ class _FavoriteRow extends StatelessWidget {
   }
 }
 
-class _FavoriteCover extends StatelessWidget {
-  const _FavoriteCover({required this.imageProvider});
-
-  final ImageProvider? imageProvider;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final placeholder = ColoredBox(
-      color: scheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.music_note_rounded,
-        size: 18,
-        color: scheme.onSurfaceVariant,
-      ),
-    );
-
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: imageProvider == null
-            ? placeholder
-            : Image(
-                image: imageProvider!,
-                fit: BoxFit.cover,
-                frameBuilder: (context, child, frame, _) =>
-                    frame == null ? placeholder : child,
-                errorBuilder: (context, error, stackTrace) => placeholder,
-              ),
-      ),
-    );
-  }
-}
-
 class _QualityPicker extends StatelessWidget {
   const _QualityPicker({required this.quality, required this.onChanged});
 
@@ -227,10 +193,10 @@ class _QualityPicker extends StatelessWidget {
       orElse: () => AudioQuality.values.first,
     );
 
+    final scheme = context.scheme;
     return PopupMenuButton<AudioQuality>(
       initialValue: selected,
       onSelected: (value) => onChanged(value.brValue),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       itemBuilder: (context) => AudioQuality.values
           .map(
             (item) => PopupMenuItem(
@@ -240,21 +206,32 @@ class _QualityPicker extends StatelessWidget {
           )
           .toList(),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm + 2,
+        ),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
+          color: context.visual.accentSurface,
+          borderRadius: AppRadius.smAll,
+          border: Border.all(color: scheme.primary.withValues(alpha: 0.2)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.high_quality_rounded, size: 18),
-            const SizedBox(width: 7),
-            Text(selected.label),
-            const SizedBox(width: 4),
-            const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
+            Icon(Icons.high_quality_rounded, size: 18, color: scheme.primary),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              selected.label,
+              style: context.textStyles.labelLarge?.copyWith(
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 17,
+              color: scheme.primary,
+            ),
           ],
         ),
       ),

@@ -5,8 +5,10 @@ import '../../providers/theme_provider.dart';
 import '../../providers/api_settings_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/visualizer_settings_provider.dart';
 import '../../services/gd_music_api.dart';
 import '../../services/connectivity_service.dart';
+import '../theme/app_design.dart';
 import '../widgets/appearance_settings_section.dart';
 import '../widgets/app_surfaces.dart';
 import '../widgets/playback_settings_sections.dart';
@@ -46,6 +48,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final apiSettings = context.watch<ApiSettingsProvider>();
     final downloadProvider = context.watch<DownloadProvider>();
     final playerProvider = context.watch<PlayerProvider>();
+    final visualizerSettings = context.watch<VisualizerSettingsProvider>();
     final scheme = Theme.of(context).colorScheme;
 
     return Column(
@@ -58,9 +61,16 @@ class _SettingsPageState extends State<SettingsPage> {
         Expanded(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1040),
+              constraints: const BoxConstraints(
+                maxWidth: AppBreakpoints.settingsMaxWidth,
+              ),
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.page,
+                  0,
+                  AppSpacing.page,
+                  AppSpacing.xxl + AppSpacing.xs,
+                ),
                 children: [
                   // API 设置
                   _buildSection(
@@ -70,70 +80,92 @@ class _SettingsPageState extends State<SettingsPage> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
+                          horizontal: AppSpacing.lg,
+                          vertical: AppSpacing.sm,
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'API 地址',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.outline),
+                              style: context.textStyles.labelMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _apiUrlController,
-                                    decoration: InputDecoration(
-                                      hintText:
-                                          ApiSettingsProvider.defaultApiBaseUrl,
-                                      isDense: true,
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 12,
-                                          ),
-                                    ),
-                                    style: const TextStyle(fontSize: 14),
+                            const SizedBox(height: AppSpacing.sm),
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final field = TextField(
+                                  controller: _apiUrlController,
+                                  decoration: const InputDecoration(
+                                    hintText:
+                                        ApiSettingsProvider.defaultApiBaseUrl,
+                                    isDense: true,
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                _buildTestButton(apiSettings),
-                                const SizedBox(width: 8),
-                                FilledButton.tonal(
-                                  onPressed: () async {
-                                    await apiSettings.setApiBaseUrl(
-                                      _apiUrlController.text,
-                                    );
-                                    if (context.mounted) {
-                                      // 同步到共享 API 客户端
-                                      final api = context
-                                          .read<GdMusicApiClient>();
-                                      api.updateBaseUrl(apiSettings.apiBaseUrl);
-                                      context
-                                          .read<ConnectivityService>()
-                                          .updateApiHost(api.baseUri);
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('API 地址已保存'),
+                                  style: context.textStyles.bodyMedium,
+                                );
+                                final actions = Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildTestButton(apiSettings),
+                                    const SizedBox(width: AppSpacing.sm),
+                                    FilledButton.tonal(
+                                      onPressed: () async {
+                                        await apiSettings.setApiBaseUrl(
+                                          _apiUrlController.text,
+                                        );
+                                        if (context.mounted) {
+                                          // 同步到共享 API 客户端
+                                          final api = context
+                                              .read<GdMusicApiClient>();
+                                          api.updateBaseUrl(
+                                            apiSettings.apiBaseUrl,
+                                          );
+                                          context
+                                              .read<ConnectivityService>()
+                                              .updateApiHost(api.baseUri);
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('API 地址已保存'),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      child: const Tooltip(
+                                        message: '保存 API 地址',
+                                        child: Icon(
+                                          Icons.save_outlined,
+                                          size: 20,
                                         ),
-                                      );
-                                    }
-                                  },
-                                  child: const Tooltip(
-                                    message: '保存 API 地址',
-                                    child: Icon(Icons.save_outlined, size: 20),
-                                  ),
-                                ),
-                              ],
+                                      ),
+                                    ),
+                                  ],
+                                );
+
+                                if (constraints.maxWidth < 520) {
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      field,
+                                      const SizedBox(height: AppSpacing.md),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: actions,
+                                      ),
+                                    ],
+                                  );
+                                }
+                                return Row(
+                                  children: [
+                                    Expanded(child: field),
+                                    const SizedBox(width: AppSpacing.sm),
+                                    actions,
+                                  ],
+                                );
+                              },
                             ),
                             if (_connectionTestResult != null)
                               Padding(
@@ -146,18 +178,18 @@ class _SettingsPageState extends State<SettingsPage> {
                                           : Icons.error,
                                       size: 16,
                                       color: _connectionTestResult!
-                                          ? Colors.green
+                                          ? context.visual.success
                                           : scheme.error,
                                     ),
-                                    const SizedBox(width: 4),
+                                    const SizedBox(width: AppSpacing.xs),
                                     Text(
                                       _connectionTestResult! ? '连接成功' : '连接失败',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: _connectionTestResult!
-                                            ? Colors.green
-                                            : scheme.error,
-                                      ),
+                                      style: context.textStyles.labelMedium
+                                          ?.copyWith(
+                                            color: _connectionTestResult!
+                                                ? context.visual.success
+                                                : scheme.error,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -214,11 +246,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 音乐源设置
                   MusicSourceSettingsSection(apiSettings: apiSettings),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 音质设置
                   AudioQualitySettingsSection(
@@ -226,22 +258,25 @@ class _SettingsPageState extends State<SettingsPage> {
                     downloadProvider: downloadProvider,
                     playerProvider: playerProvider,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
+
+                  _buildVisualizerSettings(context, visualizerSettings),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 下载设置
                   DownloadSettingsSection(downloadProvider: downloadProvider),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 歌词设置
                   LyricSettingsSection(
                     apiSettings: apiSettings,
                     playerProvider: playerProvider,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 外观设置
                   AppearanceSettingsSection(theme: theme),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 快捷键
                   _buildSection(
@@ -274,7 +309,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.gutter),
 
                   // 关于
                   _buildSection(
@@ -286,8 +321,10 @@ class _SettingsPageState extends State<SettingsPage> {
                         context,
                         title: '版本',
                         trailing: Text(
-                          'v1.0.0',
-                          style: TextStyle(color: scheme.outline),
+                          'v1.2.0+2',
+                          style: context.textStyles.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                       const Divider(height: 1),
@@ -452,5 +489,106 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _buildShortcut(String keys) {
     return ShortcutBadge(keys: keys);
+  }
+
+  Widget _buildVisualizerSettings(
+    BuildContext context,
+    VisualizerSettingsProvider settings,
+  ) {
+    return _buildSection(
+      context,
+      title: '频谱可视化',
+      icon: Icons.graphic_eq_rounded,
+      children: [
+        _buildTile(
+          context,
+          title: '灵敏度',
+          subtitle: '${settings.sensitivity.toStringAsFixed(1)}x',
+          trailing: SizedBox(
+            width: 170,
+            child: Slider(
+              value: settings.sensitivity,
+              min: 0.4,
+              max: 2.5,
+              divisions: 21,
+              label: '${settings.sensitivity.toStringAsFixed(1)}x',
+              onChanged: settings.setSensitivity,
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        _buildTile(
+          context,
+          title: '平滑度',
+          subtitle: settings.smoothing < 0.35 ? '快速响应' : '柔和过渡',
+          trailing: SizedBox(
+            width: 170,
+            child: Slider(
+              value: settings.smoothing,
+              min: 0,
+              max: 1,
+              divisions: 10,
+              label: settings.smoothing.toStringAsFixed(1),
+              onChanged: settings.setSmoothing,
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        _buildTile(
+          context,
+          title: '发光强度',
+          subtitle: '${(settings.glowStrength * 100).round()}%',
+          trailing: SizedBox(
+            width: 170,
+            child: Slider(
+              value: settings.glowStrength,
+              min: 0,
+              max: 1.8,
+              divisions: 18,
+              label: '${(settings.glowStrength * 100).round()}%',
+              onChanged: settings.setGlowStrength,
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        _buildTile(
+          context,
+          title: '背景透明度',
+          subtitle: '${(settings.backgroundOpacity * 100).round()}%',
+          trailing: SizedBox(
+            width: 170,
+            child: Slider(
+              value: settings.backgroundOpacity,
+              min: 0,
+              max: 0.45,
+              divisions: 9,
+              label: '${(settings.backgroundOpacity * 100).round()}%',
+              onChanged: settings.setBackgroundOpacity,
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        _buildTile(
+          context,
+          title: '刷新率上限',
+          subtitle: '${settings.maxFps} FPS',
+          trailing: SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 15, label: Text('省电')),
+              ButtonSegment(value: 30, label: Text('均衡')),
+              ButtonSegment(value: 60, label: Text('流畅')),
+            ],
+            selected: {
+              settings.maxFps <= 15
+                  ? 15
+                  : settings.maxFps >= 60
+                  ? 60
+                  : 30,
+            },
+            onSelectionChanged: (value) => settings.setMaxFps(value.first),
+          ),
+        ),
+      ],
+    );
   }
 }

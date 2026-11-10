@@ -1,12 +1,13 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
+import '../../providers/visualizer_settings_provider.dart';
+import '../theme/app_design.dart';
 import 'visualizer/particle.dart';
 import 'visualizer/spectrum_painter.dart';
 import 'visualizer/visualizer_style.dart';
-import 'visualizer/visualizer_signal.dart';
+import 'visualizer/visualizer_frame.dart';
 
 export 'visualizer/visualizer_style.dart'
     show VisualizerStyle, VisualizerStyleExtension;
@@ -16,6 +17,7 @@ class VisualizerView extends StatefulWidget {
   const VisualizerView({
     super.key,
     this.showStyleSelector = true,
+    this.showStyleLabel = true,
     this.fixedStyle,
     this.enableGlow = true,
     this.showGuides = true,
@@ -24,6 +26,9 @@ class VisualizerView extends StatefulWidget {
     this.maxFps = 30,
   });
   final bool showStyleSelector;
+
+  /// 面板标题已显示样式时，底部只保留运行状态。
+  final bool showStyleLabel;
   final VisualizerStyle? fixedStyle;
   final bool enableGlow;
   final bool showGuides;
@@ -46,15 +51,12 @@ class _VisualizerViewState extends State<VisualizerView>
   // 固定的紧凑缓冲区。Float32List 比 List<double> 显著减少堆对象与内存占用。
   static const int maxBars = 72;
   static const int maxParticles = 42;
-  static const int historyLength = 32;
+  static const int historyLength = 64;
 
-  final VisualizerSignal _signal = VisualizerSignal(maxBars: maxBars);
-  final List<List<double>> _history = List.generate(
-    historyLength,
-    (_) => Float32List(maxBars),
+  final VisualizerFrame _frame = VisualizerFrame(
+    maxBars: maxBars,
+    historyLength: historyLength,
   );
-  int _historyHead = 0; // 环形缓冲区头指针
-  int _historyCount = 0;
 
   int _currentBarCount = 0;
   VisualizerStyle _style = VisualizerStyle.bars;
@@ -117,16 +119,19 @@ class _VisualizerViewState extends State<VisualizerView>
   }
 
   void _tick() {
-    if (!mounted || !widget.enabled || !_isPlaying || _currentBarCount == 0) {
+    if (!mounted) return;
+    final player = _playerProvider ??= context.read<PlayerProvider>();
+    final isPlaying = player.isPlaying;
+    if (!widget.enabled || !isPlaying || _currentBarCount == 0) {
       if (_controller.isAnimating) _controller.stop();
       return;
     }
 
     final elapsedMicros = _frameClock.elapsedMicroseconds;
     final currentStyle = widget.fixedStyle ?? _style;
-    final player = _playerProvider ??= context.read<PlayerProvider>();
-    final isPlaying = player.isPlaying;
-    final regularInterval = (1000000 / widget.maxFps.clamp(12, 60)).round();
+    final settings = context.read<VisualizerSettingsProvider?>();
+    final targetFps = settings?.maxFps ?? widget.maxFps;
+    final regularInterval = (1000000 / targetFps.clamp(12, 60)).round();
     final heavyInterval = math.max(regularInterval, 33333);
     final intervalMicros = currentStyle.isHeavy
         ? heavyInterval
@@ -141,19 +146,30 @@ class _VisualizerViewState extends State<VisualizerView>
     _lastFrameMicros = elapsedMicros;
     final dt = (elapsedDelta / 1000000.0).clamp(0.016, 0.1);
 
-    _signal.process(player.fftData, isPlaying, dt);
+    player.sampleVisualizationFrame();
+    _frame.signal.process(
+      player.fftData,
+      isPlaying,
+      dt,
+      sensitivity: settings?.sensitivity ?? 1,
+      smoothing: settings?.smoothing ?? 0.5,
+    );
+    _frame.processWaveform(
+      player.waveformData,
+      dt,
+      sensitivity: settings?.sensitivity ?? 1,
+    );
     _waveOffset += dt * 2.0;
+    _frame.phase = _waveOffset;
 
     if (currentStyle == VisualizerStyle.particles) {
-      _updateParticles(dt, _signal.beatIntensity > 0.55);
+      _updateParticles(dt, _frame.signal.beatIntensity > 0.55);
     } else if (_particles.isNotEmpty) {
       _particles.clear();
     }
 
     if (_isPlaying && currentStyle == VisualizerStyle.waterfall) {
-      _history[_historyHead].setRange(0, _currentBarCount, _signal.levels);
-      _historyHead = (_historyHead + 1) % historyLength;
-      _historyCount = math.min(historyLength, _historyCount + 1);
+      _frame.captureHistory(dt, 1);
     }
 
     _repaintSignal.repaint();
@@ -200,29 +216,9 @@ class _VisualizerViewState extends State<VisualizerView>
     }
 
     // 能量计算 — 分频段
-    double bassLevel = 0, midLevel = 0, highLevel = 0;
-    if (_currentBarCount > 0) {
-      final bassEnd = (_currentBarCount * 0.2).toInt().clamp(
-        1,
-        _currentBarCount,
-      );
-      final midEnd = (_currentBarCount * 0.6).toInt().clamp(
-        1,
-        _currentBarCount,
-      );
-      for (var i = 0; i < bassEnd; i++) {
-        bassLevel += _signal.levels[i];
-      }
-      bassLevel /= bassEnd;
-      for (var i = bassEnd; i < midEnd; i++) {
-        midLevel += _signal.levels[i];
-      }
-      midLevel /= (midEnd - bassEnd).clamp(1, 999);
-      for (var i = midEnd; i < _currentBarCount; i++) {
-        highLevel += _signal.levels[i];
-      }
-      highLevel /= (_currentBarCount - midEnd).clamp(1, 999);
-    }
+    final bassLevel = _frame.signal.bassEnergy;
+    final midLevel = _frame.signal.midEnergy;
+    final highLevel = _frame.signal.highEnergy;
 
     final totalEnergy = bassLevel * 0.4 + midLevel * 0.4 + highLevel * 0.2;
 
@@ -273,7 +269,7 @@ class _VisualizerViewState extends State<VisualizerView>
         }
 
         targetIdx = targetIdx.clamp(0, _currentBarCount - 1);
-        final level = _signal.levels[targetIdx];
+        final level = _frame.signal.levels[targetIdx];
         if (level < 0.1) continue;
 
         final spawnX = targetIdx / _currentBarCount;
@@ -299,6 +295,7 @@ class _VisualizerViewState extends State<VisualizerView>
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final settings = context.watch<VisualizerSettingsProvider?>();
     final tickerEnabled = TickerMode.valuesOf(context).enabled;
     if (_tickerEnabled != tickerEnabled) {
       _tickerEnabled = tickerEnabled;
@@ -325,7 +322,8 @@ class _VisualizerViewState extends State<VisualizerView>
         // 只在数量变化时调整数组
         if (count != _currentBarCount) {
           _currentBarCount = count;
-          _signal.setBandCount(count);
+          _frame.signal.setBandCount(count);
+          _syncAnimation();
         }
 
         return SizedBox(
@@ -333,41 +331,61 @@ class _VisualizerViewState extends State<VisualizerView>
           child: RepaintBoundary(
             child: Stack(
               children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    size: Size.infinite,
-                    painter: SpectrumPainter(
-                      repaint: _repaintSignal,
-                      levels: _signal.levels,
-                      peaks: _signal.peaks,
-                      barCount: _currentBarCount,
-                      style: currentStyle,
-                      color: scheme.primary,
-                      secondaryColor: scheme.secondary,
-                      tertiaryColor: scheme.tertiary,
-                      surfaceColor: scheme.surface,
-                      faintColor: scheme.primary.withValues(alpha: 0.18),
-                      particles: currentStyle == VisualizerStyle.particles
-                          ? _particles
-                          : const [],
-                      history: currentStyle == VisualizerStyle.waterfall
-                          ? _history
-                          : const [],
-                      historyHead: _historyHead,
-                      historyCount: _historyCount,
-                      beatIntensity: _signal.beatIntensity,
-                      phase: _waveOffset,
-                      enableGlow: widget.enableGlow,
-                      showGuides: widget.showGuides,
+                if (isPlaying)
+                  Positioned.fill(
+                    bottom: 28,
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        willChange: true,
+                        size: Size.infinite,
+                        painter: SpectrumPainter(
+                          frame: _frame,
+                          repaint: _repaintSignal,
+                          levels: _frame.signal.levels,
+                          peaks: _frame.signal.peaks,
+                          barCount: _currentBarCount,
+                          style: currentStyle,
+                          color: scheme.primary,
+                          secondaryColor: scheme.secondary,
+                          tertiaryColor: scheme.tertiary,
+                          surfaceColor: scheme.surface,
+                          faintColor: scheme.primary.withValues(alpha: 0.18),
+                          waveform: _frame.waveform,
+                          particles: currentStyle == VisualizerStyle.particles
+                              ? _particles
+                              : const [],
+                          history: currentStyle == VisualizerStyle.waterfall
+                              ? _frame.history
+                              : const [],
+                          historyHead: _frame.historyHead,
+                          historyCount: _frame.historyCount,
+                          beatIntensity: _frame.signal.beatIntensity,
+                          bassEnergy: _frame.signal.bassEnergy,
+                          midEnergy: _frame.signal.midEnergy,
+                          highEnergy: _frame.signal.highEnergy,
+                          phase: _frame.phase,
+                          enableGlow: widget.enableGlow,
+                          showGuides: widget.showGuides,
+                          glowStrength: settings?.glowStrength ?? 1,
+                          backgroundOpacity: settings?.backgroundOpacity ?? 0,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                if (!isPlaying)
+                  Positioned.fill(
+                    bottom: 28,
+                    child: IgnorePointer(
+                      child: _VisualizerIdleState(scheme: scheme),
+                    ),
+                  ),
                 Positioned(
-                  left: 10,
-                  bottom: 8,
+                  left: 2,
+                  bottom: 2,
                   child: _VisualizerStatus(
                     style: currentStyle,
                     isPlaying: isPlaying,
+                    showStyleLabel: widget.showStyleLabel,
                   ),
                 ),
                 if (widget.showStyleSelector)
@@ -433,6 +451,10 @@ class _VisualizerViewState extends State<VisualizerView>
       } else {
         if (_controller.isAnimating) _controller.stop();
         _lastFrameMicros = 0;
+        _frame.signal.reset();
+        _frame.resetHistory();
+        _frame.clearWaveform();
+        _particles.clear();
         _repaintSignal.repaint();
       }
     });
@@ -444,58 +466,177 @@ class _VisualizerViewState extends State<VisualizerView>
   }
 }
 
-class _VisualizerStatus extends StatelessWidget {
-  const _VisualizerStatus({required this.style, required this.isPlaying});
+class _VisualizerIdleState extends StatelessWidget {
+  const _VisualizerIdleState({required this.scheme});
 
-  final VisualizerStyle style;
-  final bool isPlaying;
+  final ColorScheme scheme;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final active = isPlaying && TickerMode.valuesOf(context).enabled;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.76),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: Row(
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final showHeading = constraints.maxHeight >= 170;
+      final diameter = math.min(
+        112.0,
+        math.max(36.0, constraints.maxHeight - (showHeading ? 84 : 44)),
+      );
+      return Center(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(style.icon, size: 14, color: scheme.primary),
-            const SizedBox(width: 6),
-            Text(
-              style.displayName,
-              style: TextStyle(
-                color: scheme.onSurface,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+            SizedBox.square(
+              dimension: diameter,
+              child: CustomPaint(
+                painter: _IdleRecordPainter(scheme.primary, scheme.surface),
+                child: Center(
+                  child: Icon(
+                    Icons.music_note_rounded,
+                    size: diameter * 0.24,
+                    color: scheme.primary,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 8),
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: active ? scheme.primary : scheme.outline,
+            const SizedBox(height: AppSpacing.md),
+            if (showHeading) ...[
+              Text(
+                '让旋律跃动',
+                style: context.textStyles.titleLarge?.copyWith(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(width: 5),
+              const SizedBox(height: AppSpacing.xs),
+            ],
             Text(
-              active ? '实时' : '待机',
-              style: TextStyle(
-                color: active ? scheme.primary : scheme.onSurfaceVariant,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
+              '播放音乐后显示频谱',
+              style: context.textStyles.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
               ),
             ),
           ],
         ),
+      );
+    },
+  );
+}
+
+/// 静态唱片插画：待机时不伪造音频，也不持续驱动动画。
+class _IdleRecordPainter extends CustomPainter {
+  _IdleRecordPainter(this.color, this.surface);
+  final Color color;
+  final Color surface;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide * 0.43;
+    final accent = HSLColor.fromColor(color);
+    final companion = accent.withHue((accent.hue + 65) % 360).toColor();
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: 0.24),
+          surface.withValues(alpha: 0.75),
+          companion.withValues(alpha: 0.16),
+        ],
+      ).createShader(Offset.zero & size);
+    canvas.drawCircle(center, radius, paint);
+    paint
+      ..shader = null
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (final ratio in const [0.38, 0.57, 0.72, 0.85, 1.0]) {
+      paint.color = color.withValues(alpha: ratio == 1.0 ? 0.36 : 0.15);
+      canvas.drawCircle(center, radius * ratio, paint);
+    }
+    paint
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..shader = SweepGradient(
+        colors: [color, companion, color],
+      ).createShader(Offset.zero & size);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius * 1.12),
+      -math.pi * 0.85,
+      math.pi * 0.55,
+      false,
+      paint,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius * 1.12),
+      math.pi * 0.15,
+      math.pi * 0.55,
+      false,
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _IdleRecordPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.surface != surface;
+}
+
+class _VisualizerStatus extends StatelessWidget {
+  const _VisualizerStatus({
+    required this.style,
+    required this.isPlaying,
+    required this.showStyleLabel,
+  });
+
+  final VisualizerStyle style;
+  final bool isPlaying;
+  final bool showStyleLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    final visual = context.visual;
+    final active = isPlaying && TickerMode.valuesOf(context).enabled;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xxs + 1,
+      ),
+      decoration: BoxDecoration(
+        color: visual.panelMuted.withValues(alpha: context.isDark ? 0.45 : 0.6),
+        borderRadius: AppRadius.pillAll,
+        border: Border.all(color: visual.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showStyleLabel) ...[
+            Icon(style.icon, size: 14, color: scheme.primary),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              style.displayName,
+              style: context.textStyles.labelSmall?.copyWith(
+                color: scheme.onSurface,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+          ],
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: active ? scheme.primary : scheme.outline,
+              boxShadow: active
+                  ? AppShadows.glow(scheme.primary, alpha: 0.5)
+                  : null,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Text(
+            active ? '实时' : '待机',
+            style: context.textStyles.labelSmall?.copyWith(
+              fontSize: AppTypeScale.micro,
+              color: active ? scheme.primary : scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -10,6 +10,7 @@ import '../../providers/favorites_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../services/gd_music_api.dart';
+import '../theme/app_design.dart';
 import 'app_surfaces.dart';
 
 class CompactSearchResultList extends StatelessWidget {
@@ -29,10 +30,20 @@ class CompactSearchResultList extends StatelessWidget {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.sm,
+            ),
             child: AppSectionTitle(
               title: '搜索结果',
               subtitle: '找到 ${items.length} 首歌曲',
+              trailing: Icon(
+                Icons.graphic_eq_rounded,
+                size: 18,
+                color: context.scheme.primary.withValues(alpha: 0.7),
+              ),
             ),
           ),
           const Divider(height: 1),
@@ -96,7 +107,7 @@ class _CompactSearchResultRow extends StatelessWidget {
         track.album,
         track.source,
       ].where((text) => text.isNotEmpty).join('  ·  '),
-      leading: _SearchCover(
+      leading: AppCover(
         imageProvider: coverUrl == null
             ? null
             : coverImageProvider(coverUrl, size: 44),
@@ -130,8 +141,8 @@ class _CompactSearchResultRow extends StatelessWidget {
                   ),
                   Text(
                     '${(downloadState.$2 * 100).round()}',
-                    style: TextStyle(
-                      fontSize: 8,
+                    style: context.textStyles.labelSmall?.copyWith(
+                      fontSize: AppTypeScale.micro,
                       fontWeight: FontWeight.w700,
                       color: scheme.primary,
                     ),
@@ -213,46 +224,6 @@ class _CompactSearchResultRow extends StatelessWidget {
   }
 }
 
-class _SearchCover extends StatelessWidget {
-  const _SearchCover({required this.imageProvider});
-
-  final ImageProvider? imageProvider;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final placeholder = ColoredBox(
-      color: scheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.music_note_rounded,
-        size: 18,
-        color: scheme.onSurfaceVariant,
-      ),
-    );
-
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: imageProvider == null
-            ? placeholder
-            : Image(
-                image: imageProvider!,
-                fit: BoxFit.cover,
-                frameBuilder: (context, child, frame, _) =>
-                    frame == null ? placeholder : child,
-                errorBuilder: (context, error, stackTrace) => placeholder,
-              ),
-      ),
-    );
-  }
-}
-
 class _CompactShimmerRow extends StatefulWidget {
   const _CompactShimmerRow();
 
@@ -287,18 +258,21 @@ class _CompactShimmerRowState extends State<_CompactShimmerRow>
       builder: (context, child) =>
           Opacity(opacity: 0.45 + _controller.value * 0.3, child: child),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 9),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.sm,
+        ),
         child: Row(
           children: [
-            _block(scheme, 44, 44, 6),
-            const SizedBox(width: 12),
+            _block(scheme, 44, 44, AppRadius.sm),
+            const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _block(scheme, 180, 12, 4),
-                  const SizedBox(height: 8),
-                  _block(scheme, 110, 9, 4),
+                  _block(scheme, 180, 12, AppRadius.xs),
+                  const SizedBox(height: AppSpacing.sm),
+                  _block(scheme, 110, 9, AppRadius.xs),
                 ],
               ),
             ),

@@ -110,9 +110,6 @@ flutter test
 ```
 music_player/
 ├── lib/                      # 主要源代码
-│   ├── audio/               # 音频相关
-│   │   ├── equalizer.dart   # 均衡器（已移除）
-│   │   └── ffmpeg_transcoder.dart  # FFmpeg 转码器（已移除）
 │   ├── models/              # 数据模型
 │   │   ├── playlist.dart    # 播放列表模型
 │   │   └── track.dart       # 曲目模型
@@ -135,7 +132,7 @@ music_player/
 │   │   │   ├── favorites_workspace_page.dart
 │   │   │   ├── history_workspace_page.dart
 │   │   │   ├── main_layout.dart
-│   │   │   ├── player_workspace_page_v2.dart
+│   │   │   ├── player_workspace_page_v3.dart
 │   │   │   ├── search_page.dart
 │   │   │   ├── settings_page.dart
 │   │   │   └── visualizer_fullscreen_page.dart

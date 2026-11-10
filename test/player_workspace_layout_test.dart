@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/models/playlist.dart';
@@ -14,6 +16,8 @@ import 'package:music_player/services/lyric_service.dart';
 import 'package:music_player/services/storage_service.dart';
 import 'package:music_player/ui/pages/player_workspace_page_v3.dart';
 import 'package:music_player/ui/widgets/mini_player_v2.dart';
+import 'package:music_player/ui/widgets/playlist_panel.dart';
+import 'package:music_player/ui/widgets/visualizer_view.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -24,6 +28,9 @@ void main() {
   late Directory testStorageDirectory;
 
   setUpAll(() async {
+    final icons = FontLoader('MaterialIcons')
+      ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
+    await icons.load();
     final font = File(r'C:\Windows\Fonts\msyh.ttc');
     if (await font.exists()) {
       final loader = FontLoader('Microsoft YaHei UI')
@@ -139,6 +146,99 @@ void main() {
       theme.dispose();
     },
   );
+  for (final size in const [
+    Size(360, 640),
+    Size(820, 600),
+    Size(1040, 720),
+    Size(1600, 1000),
+  ]) {
+    for (final dark in [false, true]) {
+      testWidgets('workspace style controls at $size dark=$dark', (
+        tester,
+      ) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = size;
+        addTearDown(tester.view.reset);
+        final theme = ThemeProvider(useGoogleFonts: false);
+        final player = _FakePlayerProvider();
+        final playlist = PlaylistProvider(
+          initialPlaylist: Playlist(
+            name: '样式预览',
+            tracks: [
+              Track(
+                id: 'style-preview',
+                title: '夜航 · Midnight Drive',
+                artist: '音乐播放器',
+                path: '${testStorageDirectory.path}/preview.mp3',
+              ),
+            ],
+          ),
+        );
+        final boundaryKey = GlobalKey();
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<PlayerProvider>.value(value: player),
+              ChangeNotifierProvider<PlaylistProvider>.value(value: playlist),
+            ],
+            child: MaterialApp(
+              theme: dark ? theme.darkTheme : theme.lightTheme,
+              home: RepaintBoundary(
+                key: boundaryKey,
+                child: const Scaffold(
+                  body: Column(
+                    children: [
+                      Expanded(child: PlayerWorkspacePage()),
+                      MiniPlayer(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('播放音乐后显示频谱'), findsOneWidget);
+
+        final captureDir = Platform.environment['UI_CAPTURE_DIR'];
+        if (captureDir != null && size.width >= 820) {
+          final boundary =
+              boundaryKey.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          await tester.runAsync(() async {
+            final image = await boundary.toImage();
+            final data = await image.toByteData(format: ui.ImageByteFormat.png);
+            await Directory(captureDir).create(recursive: true);
+            await File(
+              '$captureDir/workspace-${size.width.toInt()}-${dark ? 'dark' : 'light'}.png',
+            ).writeAsBytes(data!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
+
+        await tester.tap(find.byTooltip('频谱样式'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('点阵').last);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<VisualizerView>(find.byType(VisualizerView)).fixedStyle,
+          VisualizerStyle.dots,
+        );
+        await tester.tap(find.byTooltip('收起播放队列'));
+        await tester.pumpAndSettle();
+        expect(find.byType(PlaylistPanel), findsNothing);
+        await tester.tap(find.byTooltip('展开播放队列'));
+        await tester.pumpAndSettle();
+        expect(find.byType(PlaylistPanel), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        player.dispose();
+        playlist.dispose();
+        theme.dispose();
+      });
+    }
+  }
 }
 
 class _FakePlayerProvider extends ChangeNotifier implements PlayerProvider {
@@ -147,6 +247,9 @@ class _FakePlayerProvider extends ChangeNotifier implements PlayerProvider {
 
   @override
   final Float32List fftData = Float32List(128);
+
+  @override
+  final Float32List waveformData = Float32List(256);
 
   @override
   final ValueNotifier<double> volumeNotifier = ValueNotifier(1);
@@ -177,6 +280,9 @@ class _FakePlayerProvider extends ChangeNotifier implements PlayerProvider {
 
   @override
   void setVisualizationConsumerActive(Object consumer, bool active) {}
+
+  @override
+  void sampleVisualizationFrame() {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

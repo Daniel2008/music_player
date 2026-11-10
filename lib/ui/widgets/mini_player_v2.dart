@@ -5,8 +5,9 @@ import '../../main.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
-import '../../providers/theme_provider.dart';
+import '../theme/app_design.dart';
 import 'playback_controls.dart';
+import 'surface_texture.dart';
 
 class MiniPlayer extends StatelessWidget {
   const MiniPlayer({super.key});
@@ -39,92 +40,133 @@ class MiniPlayer extends StatelessWidget {
     required PlayerProvider player,
     required PlaylistProvider playlist,
   }) {
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    final visual = context.visual;
+    final scheme = context.scheme;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final showVolume = width >= 1120;
-        final showArtist = width >= 900;
+        final showVolume = width >= AppBreakpoints.playerShowVolume;
+        final showArtist = width >= AppBreakpoints.playerShowArtist;
+        final compact = width < AppBreakpoints.playerCompactPadding;
 
         return Container(
-          margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          margin: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            0,
+            AppSpacing.lg,
+            AppSpacing.md,
+          ),
           padding: EdgeInsets.symmetric(
-            horizontal: width < 620 ? 14 : 20,
-            vertical: width < 620 ? 10 : 9,
+            horizontal: compact ? 14 : AppSpacing.xl,
+            vertical: compact ? 10 : 9,
           ),
           decoration: BoxDecoration(
-            color: visual.elevatedPanel,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: visual.border),
-            boxShadow: [
-              BoxShadow(
-                color: visual.shadow,
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: width < 620
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        _buildArtwork(context, track),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _TrackIdentity(track: track, showArtist: true),
-                        ),
-                        PlaybackControls(
-                          player: player,
-                          playlist: playlist,
-                          compact: true,
-                          showMode: false,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    PlaybackTimeline(player: player, compact: true),
-                  ],
-                )
-              : Row(
-                  children: [
-                    _buildArtwork(context, track),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: showArtist ? 190 : 132,
-                      child: _TrackIdentity(
-                        track: track,
-                        showArtist: showArtist,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 330),
-                        child: PlaybackTimeline(
-                          player: player,
-                          compact: true,
-                          showTimeLabels: width >= 1040,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    PlaybackControls(
-                      player: player,
-                      playlist: playlist,
-                      compact: true,
-                      showMode: width >= 980,
-                    ),
-                    if (showVolume) ...[
-                      const SizedBox(width: 18),
-                      PlaybackVolume(player: player, compact: true),
-                    ],
-                  ],
+            color: visual.panel,
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Color.alphaBlend(
+                  scheme.primary.withValues(alpha: 0.14),
+                  visual.panel,
                 ),
+                visual.panel,
+                Color.alphaBlend(
+                  scheme.tertiary.withValues(alpha: 0.06),
+                  visual.panel,
+                ),
+              ],
+              stops: const [0, 0.58, 1],
+            ),
+            borderRadius: AppRadius.lgAll,
+            border: Border.all(color: visual.border),
+            boxShadow: AppShadows.soft(
+              visual.shadow.withValues(alpha: context.isDark ? 0.18 : 0.06),
+            ),
+          ),
+          child: TexturedSurface(
+            kind: SurfaceTextureKind.brushed,
+            child: width < AppBreakpoints.playerStacked
+                ? _buildStackedPlayer(
+                    context,
+                    track: track,
+                    player: player,
+                    playlist: playlist,
+                    showTimeLabels: width >= AppBreakpoints.playerCompactTime,
+                  )
+                : Row(
+                    children: [
+                      _buildArtwork(context, track),
+                      const SizedBox(width: AppSpacing.md),
+                      SizedBox(
+                        width: showArtist ? 190 : 132,
+                        child: _TrackIdentity(
+                          track: track,
+                          showArtist: showArtist,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 330),
+                          child: PlaybackTimeline(
+                            player: player,
+                            compact: true,
+                            showTimeLabels:
+                                width >= AppBreakpoints.playerShowTime,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      PlaybackControls(
+                        player: player,
+                        playlist: playlist,
+                        compact: true,
+                        showMode: width >= AppBreakpoints.playerShowMode,
+                      ),
+                      if (showVolume) ...[
+                        const SizedBox(width: AppSpacing.xl),
+                        PlaybackVolume(player: player, compact: true),
+                      ],
+                    ],
+                  ),
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildStackedPlayer(
+    BuildContext context, {
+    required Track track,
+    required PlayerProvider player,
+    required PlaylistProvider playlist,
+    required bool showTimeLabels,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            _buildArtwork(context, track),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(child: _TrackIdentity(track: track, showArtist: true)),
+            PlaybackControls(
+              player: player,
+              playlist: playlist,
+              compact: true,
+              showMode: false,
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        PlaybackTimeline(
+          player: player,
+          compact: true,
+          showTimeLabels: showTimeLabels,
+        ),
+      ],
     );
   }
 
@@ -145,41 +187,59 @@ class MiniPlayer extends StatelessWidget {
   }
 
   Widget _buildEmptyState(BuildContext context, PlaylistProvider playlist) {
-    final scheme = Theme.of(context).colorScheme;
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    final scheme = context.scheme;
+    final visual = context.visual;
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        0,
+        AppSpacing.lg,
+        AppSpacing.md,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: 9,
+      ),
       decoration: BoxDecoration(
         color: visual.panel,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: AppRadius.lgAll,
         border: Border.all(color: visual.border),
+        boxShadow: AppShadows.soft(
+          visual.shadow.withValues(alpha: context.isDark ? 0.14 : 0.05),
+        ),
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.queue_music_rounded,
-            size: 19,
-            color: scheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '播放队列为空',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: visual.accentSurface,
+              borderRadius: AppRadius.smAll,
+            ),
+            child: Icon(
+              Icons.queue_music_rounded,
+              size: 18,
+              color: scheme.primary,
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              '播放队列为空',
+              style: context.textStyles.titleSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
           TextButton.icon(
             onPressed: playlist.addFiles,
             icon: const Icon(Icons.add_rounded, size: 17),
             label: const Text('添加音乐'),
             style: TextButton.styleFrom(
               visualDensity: VisualDensity.compact,
-              textStyle: const TextStyle(fontSize: 12),
+              textStyle: context.textStyles.labelMedium,
             ),
           ),
         ],
@@ -196,13 +256,19 @@ class _AlbumArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final placeholder = ColoredBox(
-      color: scheme.surfaceContainerHighest,
+    final scheme = context.scheme;
+    final placeholder = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primaryContainer, scheme.secondaryContainer],
+        ),
+      ),
       child: Icon(
         Icons.music_note_rounded,
         size: 20,
-        color: scheme.onSurfaceVariant,
+        color: scheme.onPrimaryContainer,
       ),
     );
 
@@ -214,7 +280,7 @@ class _AlbumArtwork extends StatelessWidget {
         children: [
           Positioned.fill(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: AppRadius.mdAll,
               child: track.artUri == null
                   ? placeholder
                   : Image(
@@ -230,19 +296,24 @@ class _AlbumArtwork extends StatelessWidget {
             right: -2,
             bottom: -2,
             child: Container(
-              width: 14,
-              height: 14,
+              width: 15,
+              height: 15,
               decoration: BoxDecoration(
                 color: scheme.surface,
                 shape: BoxShape.circle,
+                border: Border.all(color: scheme.outlineVariant, width: 0.5),
               ),
               child: Center(
-                child: Container(
+                child: AnimatedContainer(
+                  duration: AppMotion.normal,
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
                     color: isPlaying ? scheme.primary : scheme.outline,
                     shape: BoxShape.circle,
+                    boxShadow: isPlaying
+                        ? AppShadows.glow(scheme.primary, alpha: 0.5)
+                        : null,
                   ),
                 ),
               ),
@@ -262,7 +333,7 @@ class _TrackIdentity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,21 +342,22 @@ class _TrackIdentity extends StatelessWidget {
           track.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
+          style: context.textStyles.titleSmall?.copyWith(
             color: scheme.onSurface,
-            fontSize: 13,
             fontWeight: FontWeight.w700,
           ),
         ),
         if (showArtist) ...[
-          const SizedBox(height: 3),
+          const SizedBox(height: AppSpacing.xxs),
           Text(
             track.artist?.isNotEmpty == true
                 ? track.artist!
                 : (track.isRemote ? '在线音乐' : '本地音乐'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
+            style: context.textStyles.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
           ),
         ],
       ],

@@ -1,8 +1,91 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:music_player/services/storage_service.dart';
 import 'package:music_player/providers/download_provider.dart';
 import 'package:music_player/services/gd_music_api.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+  setUp(() async => (await StorageService.instance.prefs).clear());
+
+  test('下载目录、并发数与自动开始设置在新实例中恢复并通知界面', () async {
+    final first = DownloadProvider();
+    await first.ready;
+    var notifications = 0;
+    first.addListener(() => notifications++);
+    await first.setDefaultDownloadPath('/fixture/downloads');
+    first.maxConcurrentDownloads = 5;
+    first.autoStartDownload = false;
+    await first.flushSettings();
+    final restored = DownloadProvider();
+    await restored.ready;
+    expect(restored.defaultDownloadPath, '/fixture/downloads');
+    expect(restored.maxConcurrentDownloads, 5);
+    expect(restored.autoStartDownload, isFalse);
+    expect(notifications, greaterThanOrEqualTo(3));
+    first.dispose();
+    restored.dispose();
+  });
+  test(
+    '同名并发下载保留已有文件并分别保存完整内容',
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'download_safety_',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        request.response.write('audio-${request.uri.pathSegments.last}');
+        await request.response.close();
+      });
+      final api = GdMusicApiClient(
+        client: MockClient(
+          (request) async => http.Response(
+            '{"url":"http://127.0.0.1:${server.port}/${request.url.queryParameters['id']}"}',
+            200,
+          ),
+        ),
+      );
+      final provider = DownloadProvider(gdApi: api);
+      addTearDown(() async {
+        provider.dispose();
+        api.close();
+        await server.close(force: true);
+        await directory.delete(recursive: true);
+      });
+      await provider.setDefaultDownloadPath(directory.path);
+      final existing = File('${directory.path}/Same - Artist.mp3');
+      await existing.writeAsString('original-user-audio');
+      GdSearchTrack track(String id) => GdSearchTrack(
+        id: id,
+        name: 'Same',
+        artists: const ['Artist'],
+        album: '',
+        source: 'netease',
+        picId: null,
+        lyricId: null,
+      );
+      final paths = await Future.wait([
+        provider.downloadTrack(track('1')),
+        provider.downloadTrack(track('2')),
+      ]).timeout(const Duration(seconds: 10));
+      expect(await existing.readAsString(), 'original-user-audio');
+      expect(
+        paths,
+        everyElement(isNotNull),
+        reason: provider.failedTasks.map((t) => t.error).join('\n'),
+      );
+      expect(paths.toSet(), hasLength(2));
+      expect(await File(paths[0]!).readAsString(), 'audio-1');
+      expect(await File(paths[1]!).readAsString(), 'audio-2');
+      expect(await directory.list().where((f) => f is Directory).length, 0);
+    }, _LocalHttpOverrides()),
+  );
+
   GdSearchTrack makeTrack(String id, {String source = 'netease'}) =>
       GdSearchTrack(
         id: id,
@@ -126,3 +209,5 @@ void main() {
     });
   });
 }
+
+class _LocalHttpOverrides extends HttpOverrides {}

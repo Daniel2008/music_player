@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../models/track.dart';
 import 'gd_music_api.dart';
 
@@ -15,6 +16,7 @@ class LyricService {
   final GdMusicApiClient _gdApi;
 
   int lyricRevision = 0;
+  int _cacheGeneration = 0;
 
   // 本地歌曲在线歌词缓存：track.id -> absolute lrc path
   final Map<String, String> localLyricPaths = {};
@@ -27,8 +29,28 @@ class LyricService {
   /// 歌词变更回调
   VoidCallback? onLyricChanged;
 
+  Future<void> clearCachedLyrics() async {
+    _cacheGeneration++;
+    final dir = await getApplicationSupportDirectory();
+    if (await dir.exists()) {
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is File &&
+            RegExp(
+              r'^(local_|gd_).+\.lrc$',
+            ).hasMatch(path.basename(entity.path))) {
+          await entity.delete();
+        }
+      }
+    }
+    localLyricPaths.clear();
+    _localLyricOrder.clear();
+    lyricRevision++;
+    onLyricChanged?.call();
+  }
+
   /// 为远程曲目缓存歌词到本地磁盘
   Future<void> ensureLyricCachedFor(Track track) async {
+    final generation = _cacheGeneration;
     if (!track.isRemote) return;
     final source = track.remoteSource;
     final lyricId = track.remoteLyricId;
@@ -41,7 +63,7 @@ class LyricService {
 
     try {
       final lyric = await _gdApi.getLyric(source: source, id: lyricId);
-      if (lyric.lyric.trim().isEmpty) return;
+      if (lyric.lyric.trim().isEmpty || generation != _cacheGeneration) return;
       await file.writeAsString(lyric.lyric);
       lyricRevision++;
       onLyricChanged?.call();
@@ -83,6 +105,7 @@ class LyricService {
     String source = 'netease',
     String? searchKeyword,
   }) async {
+    final generation = _cacheGeneration;
     if (track.isRemote) return null;
     if (_fetchingLyricIds.contains(track.id)) return null;
     _fetchingLyricIds.add(track.id);
@@ -102,12 +125,15 @@ class LyricService {
         source: match.source,
         id: match.lyricId!,
       );
-      if (lyric.lyric.trim().isEmpty) return null;
+      if (lyric.lyric.trim().isEmpty || generation != _cacheGeneration) {
+        return null;
+      }
 
       final dir = await getApplicationSupportDirectory();
       final filename = 'local_${track.id}.lrc';
       final path = '${dir.path}/$filename';
       final file = File(path);
+      if (generation != _cacheGeneration) return null;
       await file.writeAsString(lyric.lyric);
 
       _localLyricOrder.add(track.id);

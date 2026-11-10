@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../providers/theme_provider.dart';
+import '../theme/app_design.dart';
 import 'app_surfaces.dart';
 
 class SettingsSection extends StatelessWidget {
@@ -17,42 +17,59 @@ class SettingsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = context.scheme;
+
     return AppPanel(
       padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.sm,
+            ),
             child: Row(
               children: [
                 Container(
-                  width: 28,
-                  height: 28,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        scheme.primary.withValues(alpha: 0.18),
+                        scheme.primaryContainer.withValues(alpha: 0.65),
+                      ],
+                    ),
+                    borderRadius: AppRadius.smAll,
+                    border: Border.all(
+                      color: scheme.primary.withValues(alpha: 0.16),
+                    ),
                   ),
-                  child: Icon(
-                    icon,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                  child: Icon(icon, size: 17, color: scheme.primary),
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: context.textStyles.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Divider(height: 1, color: context.visual.border),
+          ),
           ...children,
-          const SizedBox(height: 4),
+          const SizedBox(height: AppSpacing.xs),
         ],
       ),
     );
@@ -75,15 +92,18 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    final scheme = context.scheme;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        hoverColor: visual.hover,
+        hoverColor: context.visual.hover,
+        borderRadius: AppRadius.smAll,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
           child: Row(
             children: [
               Expanded(
@@ -95,19 +115,17 @@ class SettingsTile extends StatelessWidget {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
+                      style: context.textStyles.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     if (subtitle != null) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: AppSpacing.xxs),
                       Text(
                         subtitle!,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
+                        style: context.textStyles.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
@@ -115,7 +133,10 @@ class SettingsTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+              if (trailing != null) ...[
+                const SizedBox(width: AppSpacing.md),
+                Flexible(child: trailing!),
+              ],
             ],
           ),
         ),
@@ -131,17 +152,24 @@ class ShortcutBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visual = Theme.of(context).extension<AppVisualTheme>()!;
+    final scheme = context.scheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xxs + 1,
+      ),
       decoration: BoxDecoration(
-        color: visual.panelMuted,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: visual.border),
+        color: scheme.surfaceContainerHigh,
+        borderRadius: AppRadius.xsAll,
+        border: Border.all(color: context.visual.border),
       ),
       child: Text(
         keys,
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+        style: context.textStyles.labelSmall?.copyWith(
+          fontFamily: 'Consolas',
+          fontFamilyFallback: const ['monospace', 'Segoe UI'],
+          color: scheme.onSurfaceVariant,
+        ),
       ),
     );
   }

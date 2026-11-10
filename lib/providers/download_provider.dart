@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../services/gd_music_api.dart';
+import '../services/storage_service.dart';
 
 /// 下载任务状态
 enum DownloadStatus { pending, downloading, completed, failed, cancelled }
@@ -77,12 +78,21 @@ class DownloadTask {
 class DownloadProvider extends ChangeNotifier {
   DownloadProvider({GdMusicApiClient? gdApi})
     : _gdApi = gdApi ?? GdMusicApiClient(),
-      _ownsApi = gdApi == null;
+      _ownsApi = gdApi == null {
+    ready = _loadSettings();
+  }
   GdMusicApiClient _gdApi;
   final bool _ownsApi;
+  late final Future<void> ready;
+  bool _disposed = false;
+  int _settingsRevision = 0;
+  bool _settingsDirty = false;
+  Timer? _settingsTimer;
+  Future<void>? _pendingSettingsSave;
 
   // 下载任务列表
   final Map<String, DownloadTask> _tasks = {};
+  final Set<String> _reservedPaths = {};
 
   // 用于 downloadTrack 的完成通知
   final Map<String, Completer<String?>> _trackCompleters = {};
@@ -94,13 +104,94 @@ class DownloadProvider extends ChangeNotifier {
   int _activeDownloads = 0;
 
   // 最大并行下载数
-  int maxConcurrentDownloads = 3;
+  int _maxConcurrentDownloads = 3;
+  int get maxConcurrentDownloads => _maxConcurrentDownloads;
+  set maxConcurrentDownloads(int value) {
+    _maxConcurrentDownloads = value.clamp(1, 5);
+    _settingsChanged();
+    if (autoStartDownload) _processQueue();
+  }
 
   // 默认下载目录
   String? _defaultDownloadPath;
 
   // 是否自动开始下载
-  bool autoStartDownload = true;
+  bool _autoStartDownload = true;
+  bool get autoStartDownload => _autoStartDownload;
+  set autoStartDownload(bool value) {
+    _autoStartDownload = value;
+    _settingsChanged();
+    if (value) _processQueue();
+  }
+
+  Future<void> _loadSettings() async {
+    final revision = _settingsRevision;
+    final prefs = await StorageService.instance.prefs;
+    if (_disposed || revision != _settingsRevision) return;
+    _defaultDownloadPath = prefs.getString('download_directory');
+    _maxConcurrentDownloads = (prefs.getInt('download_concurrency') ?? 3).clamp(
+      1,
+      5,
+    );
+    _autoStartDownload = prefs.getBool('download_auto_start') ?? true;
+    notifyListeners();
+  }
+
+  void _settingsChanged() {
+    _settingsRevision++;
+    _settingsDirty = true;
+    notifyListeners();
+    _settingsTimer?.cancel();
+    _settingsTimer = Timer(const Duration(milliseconds: 250), () {
+      unawaited(
+        flushSettings().catchError((Object e) => debugPrint('保存下载设置失败: $e')),
+      );
+    });
+  }
+
+  Future<void> flushSettings() async {
+    _settingsTimer?.cancel();
+    await ready;
+    while (true) {
+      final pending = _pendingSettingsSave;
+      if (pending != null) {
+        await pending;
+        if (_pendingSettingsSave != null &&
+            !identical(_pendingSettingsSave, pending)) {
+          continue;
+        }
+      }
+      if (!_settingsDirty) return;
+      _settingsDirty = false;
+      final directory = _defaultDownloadPath;
+      final concurrency = _maxConcurrentDownloads;
+      final autoStart = _autoStartDownload;
+      final saving = () async {
+        final prefs = await StorageService.instance.prefs;
+        final results = await Future.wait([
+          directory == null
+              ? prefs.remove('download_directory')
+              : prefs.setString('download_directory', directory),
+          prefs.setInt('download_concurrency', concurrency),
+          prefs.setBool('download_auto_start', autoStart),
+        ]);
+        if (results.contains(false)) throw StateError('下载设置保存失败');
+      }();
+      _pendingSettingsSave = saving;
+      try {
+        await saving;
+      } catch (_) {
+        _settingsDirty = true;
+        rethrow;
+      } finally {
+        if (identical(_pendingSettingsSave, saving)) {
+          _pendingSettingsSave = null;
+        }
+      }
+    }
+  }
+
+  void startPendingDownloads() => _processQueue();
 
   // 默认音质
   String defaultQuality = '320';
@@ -143,15 +234,14 @@ class DownloadProvider extends ChangeNotifier {
   /// 设置默认下载目录
   Future<void> setDefaultDownloadPath(String? path) async {
     _defaultDownloadPath = path;
-    notifyListeners();
+    _settingsChanged();
   }
 
   /// 选择默认下载目录
   Future<String?> selectDefaultDownloadPath() async {
     final result = await FilePicker.getDirectoryPath(dialogTitle: '选择默认下载目录');
     if (result != null) {
-      _defaultDownloadPath = result;
-      notifyListeners();
+      await setDefaultDownloadPath(result);
     }
     return result;
   }
@@ -215,7 +305,7 @@ class DownloadProvider extends ChangeNotifier {
         tasks.add(task);
       }
     }
-    _processQueue();
+    if (autoStartDownload) _processQueue();
     return tasks;
   }
 
@@ -240,6 +330,7 @@ class DownloadProvider extends ChangeNotifier {
 
   /// 处理下载队列
   void _processQueue() {
+    if (_disposed) return;
     while (_activeDownloads < maxConcurrentDownloads && _queue.isNotEmpty) {
       final taskId = _queue.removeAt(0);
       final task = _tasks[taskId];
@@ -251,6 +342,8 @@ class DownloadProvider extends ChangeNotifier {
 
   /// 开始下载任务
   Future<void> _startDownload(DownloadTask task) async {
+    String? reservedPath;
+    Directory? temporaryDirectory;
     final runGeneration = ++task._runGeneration;
     task._running = true;
     task._cancelRequested = false;
@@ -293,6 +386,9 @@ class DownloadProvider extends ChangeNotifier {
         return;
       }
 
+      if (!_isCurrentRun(task, runGeneration)) return;
+      savePath = await _reserveSavePath(savePath);
+      reservedPath = _pathKey(savePath);
       task.savePath = savePath;
       if (!_isCurrentRun(task, runGeneration)) return;
 
@@ -311,9 +407,11 @@ class DownloadProvider extends ChangeNotifier {
 
       // 流式写入文件，避免将整个文件缓存在内存中
       final file = File(savePath);
-      final tempFile = File('$savePath.part');
       await file.parent.create(recursive: true);
-      if (await tempFile.exists()) await tempFile.delete();
+      temporaryDirectory = await file.parent.createTemp(
+        '.music-player-download-',
+      );
+      final tempFile = File(path.join(temporaryDirectory.path, 'audio.part'));
       final sink = tempFile.openWrite();
       DateTime lastNotify = DateTime.now();
 
@@ -348,7 +446,9 @@ class DownloadProvider extends ChangeNotifier {
           if (await tempFile.exists()) await tempFile.delete();
           return;
         }
-        if (await file.exists()) await file.delete();
+        if (await file.exists()) {
+          throw FileSystemException('目标文件已存在，未覆盖', file.path);
+        }
         await tempFile.rename(file.path);
       } catch (e) {
         await sink.close();
@@ -369,11 +469,19 @@ class DownloadProvider extends ChangeNotifier {
         task.error = e.toString();
       }
     } finally {
+      if (reservedPath != null) _reservedPaths.remove(reservedPath);
+      if (temporaryDirectory != null) {
+        try {
+          await temporaryDirectory.delete(recursive: true);
+        } catch (e) {
+          debugPrint('清理下载临时文件失败: $e');
+        }
+      }
       task._running = false;
       task._httpClient?.close();
       task._httpClient = null;
       _activeDownloads = (_activeDownloads - 1).clamp(0, 1 << 30);
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       _processQueue();
       if (task._runGeneration == runGeneration) {
         final completer = _trackCompleters.remove(task.id);
@@ -383,6 +491,28 @@ class DownloadProvider extends ChangeNotifier {
           );
         }
       }
+    }
+  }
+
+  String _pathKey(String value) {
+    final normalized = path.normalize(path.absolute(value));
+    return Platform.isWindows ? normalized.toLowerCase() : normalized;
+  }
+
+  Future<String> _reserveSavePath(String requested) async {
+    var candidate = requested;
+    var suffix = 1;
+    while (true) {
+      // Check the reservation after the async filesystem check to close the
+      // race between same-name tasks in this download manager.
+      if (!await File(candidate).exists() &&
+          _reservedPaths.add(_pathKey(candidate))) {
+        return candidate;
+      }
+      candidate = path.join(
+        path.dirname(requested),
+        '${path.basenameWithoutExtension(requested)} (${++suffix})${path.extension(requested)}',
+      );
     }
   }
 
@@ -552,6 +682,11 @@ class DownloadProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _settingsTimer?.cancel();
+    unawaited(
+      flushSettings().catchError((Object e) => debugPrint('退出保存下载设置失败: $e')),
+    );
     for (final task in _tasks.values) {
       if (task.status == DownloadStatus.downloading) {
         task.cancel();

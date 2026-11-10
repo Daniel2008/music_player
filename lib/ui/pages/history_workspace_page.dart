@@ -5,6 +5,7 @@ import '../../models/track.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../theme/app_design.dart';
 import '../widgets/app_surfaces.dart';
 
 class HistoryWorkspacePage extends StatelessWidget {
@@ -33,7 +34,12 @@ class HistoryWorkspacePage extends StatelessWidget {
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.page,
+              0,
+              AppSpacing.page,
+              AppSpacing.md,
+            ),
             child: AppPanel(
               padding: EdgeInsets.zero,
               child: history.isEmpty
@@ -89,7 +95,6 @@ class _HistoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final subtitle = [
       if (track.artist != null && track.artist!.isNotEmpty) track.artist!,
       if (track.duration != null) _formatDuration(track.duration!),
@@ -98,20 +103,7 @@ class _HistoryRow extends StatelessWidget {
     return AppMediaRow(
       title: track.title,
       subtitle: subtitle.isEmpty ? '本地音乐' : subtitle,
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: Icon(
-          Icons.music_note_rounded,
-          size: 19,
-          color: scheme.onSurfaceVariant,
-        ),
-      ),
+      leading: const AppCover(icon: Icons.history_rounded),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

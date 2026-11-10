@@ -23,6 +23,17 @@ void main() {
   });
   late PlaylistProvider playlistProvider;
 
+  test('没有编辑时 flush 不覆盖无法识别的较新版本数据', () async {
+    final file = File('${testStorageDirectory.path}/saved_playlist');
+    const original = '{"_v":99,"data":{"tracks":[]}}';
+    await file.writeAsString(original);
+    final clean = PlaylistProvider();
+    await clean.ready;
+    await clean.flush();
+    expect(await file.readAsString(), original);
+    clean.dispose();
+  });
+
   setUp(() {
     playlistProvider = PlaylistProvider();
   });

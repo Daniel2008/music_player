@@ -14,6 +14,8 @@ class FavoritesProvider extends ChangeNotifier {
   static const int _maxFavorites = 500;
   static const int _schemaVersion = 1;
   Timer? _saveDebounce;
+  bool _dirty = false;
+  Future<void>? _pendingSave;
   late final Future<void> ready;
 
   List<GdSearchTrack> get favorites => _favorites;
@@ -53,13 +55,10 @@ class FavoritesProvider extends ChangeNotifier {
   }
 
   void _saveFavorites() {
+    _dirty = true;
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 300), () async {
-      await StorageService.instance.writeJsonFile(
-        fileName: _fileName,
-        currentSchemaVersion: _schemaVersion,
-        encode: () => _favorites.map((track) => track.toJson()).toList(),
-      );
+    _saveDebounce = Timer(const Duration(milliseconds: 300), () {
+      unawaited(_doSave().catchError((Object e) => debugPrint('后台保存失败: $e')));
     });
   }
 
@@ -87,20 +86,34 @@ class FavoritesProvider extends ChangeNotifier {
 
   Future<void> flush() async {
     _saveDebounce?.cancel();
-    await _doSave();
+    await ready;
+    do {
+      await _doSave();
+    } while (_dirty);
   }
 
   Future<void> _doSave() async {
-    await StorageService.instance.writeJsonFile(
+    if (!_dirty) {
+      await _pendingSave;
+      return;
+    }
+    _dirty = false;
+    _pendingSave = StorageService.instance.writeJsonFile(
       fileName: _fileName,
       currentSchemaVersion: _schemaVersion,
       encode: () => _favorites.map((track) => track.toJson()).toList(),
     );
+    try {
+      await _pendingSave;
+    } catch (_) {
+      _dirty = true;
+      rethrow;
+    }
   }
 
   @override
   void dispose() {
-    unawaited(flush());
+    unawaited(flush().catchError((Object e) => debugPrint('退出保存失败: $e')));
     super.dispose();
   }
 }

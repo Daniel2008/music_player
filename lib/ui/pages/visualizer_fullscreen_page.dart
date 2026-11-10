@@ -6,11 +6,19 @@ import 'dart:async';
 import 'dart:math' as math;
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../theme/app_design.dart';
 import '../widgets/visualizer_view.dart';
 import '../widgets/lyric_view.dart';
 
 class VisualizerFullscreenPage extends StatefulWidget {
-  const VisualizerFullscreenPage({super.key});
+  const VisualizerFullscreenPage({
+    super.key,
+    this.initialStyle = VisualizerStyle.bars,
+    this.onStyleChanged,
+  });
+
+  final VisualizerStyle initialStyle;
+  final ValueChanged<VisualizerStyle>? onStyleChanged;
 
   @override
   State<VisualizerFullscreenPage> createState() =>
@@ -27,14 +35,15 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
-  VisualizerStyle _currentStyle = VisualizerStyle.bars;
+  late VisualizerStyle _currentStyle;
 
   @override
   void initState() {
     super.initState();
+    _currentStyle = widget.initialStyle;
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: AppMotion.medium,
     );
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
@@ -86,7 +95,8 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final scheme = context.scheme;
+    final visual = context.visual;
     final bottomSafeInset = MediaQuery.of(context).padding.bottom;
     final playlist = context.watch<PlaylistProvider>();
 
@@ -106,14 +116,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
           if (player.isPlaying) {
             player.pause();
           } else {
-            if (hasValidIndex && player.duration == Duration.zero) {
-              await player.playTrackSmart(
-                playlist.current!,
-                playlistProvider: playlist,
-              );
-            } else {
-              player.play();
-            }
+            await player.playOrResume(currentTrack, playlistProvider: playlist);
           }
         },
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
@@ -140,7 +143,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
             onTap: _onInteraction,
             behavior: HitTestBehavior.opaque,
             child: Scaffold(
-              backgroundColor: Colors.black,
+              backgroundColor: scheme.surface,
               body: Stack(
                 children: [
                   // 动态背景
@@ -154,9 +157,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                         Expanded(
                           flex: _showLyrics ? 5 : 10,
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24.0,
-                            ),
+                            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
                             child: Center(
                               child: SizedBox(
                                 width: double.infinity,
@@ -164,7 +165,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                                   showStyleSelector: false,
                                   fixedStyle: _currentStyle,
                                   enableGlow: true,
-                                  showGuides: false,
+                                  showGuides: true,
                                   maxFps: 30,
                                 ),
                               ),
@@ -177,25 +178,26 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                           Expanded(
                             flex: 5,
                             child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 300),
+                              duration: AppMotion.medium,
                               opacity: _showLyrics ? 1.0 : 0.0,
                               child: Container(
                                 margin: EdgeInsets.fromLTRB(
-                                  24,
+                                  AppSpacing.xxl,
                                   0,
-                                  24,
+                                  AppSpacing.xxl,
                                   bottomSafeInset + _bottomControlReserve,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.38),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.12),
+                                  color: visual.overlay,
+                                  borderRadius: AppRadius.lgAll,
+                                  border: Border.all(color: visual.border),
+                                  boxShadow: AppShadows.soft(
+                                    visual.shadow.withValues(alpha: 0.18),
                                   ),
                                 ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(9),
-                                  child: const LyricView(),
+                                child: const ClipRRect(
+                                  borderRadius: AppRadius.lgAll,
+                                  child: LyricView(),
                                 ),
                               ),
                             ),
@@ -255,11 +257,12 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
 
   Widget _buildAnimatedBackground(ColorScheme scheme) {
     return ColoredBox(
-      color: Colors.black,
+      color: scheme.surface,
       child: CustomPaint(
         painter: _FullscreenBackdropPainter(
           primary: scheme.primary,
           secondary: scheme.secondary,
+          gridColor: scheme.onSurface,
         ),
       ),
     );
@@ -272,16 +275,16 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   ) {
     return Container(
       padding: EdgeInsets.fromLTRB(
-        16,
-        MediaQuery.of(context).padding.top + 8,
-        16,
-        16,
+        AppSpacing.lg,
+        MediaQuery.of(context).padding.top + AppSpacing.sm,
+        AppSpacing.lg,
+        AppSpacing.lg,
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
+          colors: [context.visual.scrim, Colors.transparent],
         ),
       ),
       child: Row(
@@ -289,7 +292,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
           // 返回按钮
           IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
-            color: Colors.white,
+            color: scheme.onSurface,
             tooltip: '退出全屏 (Esc)',
             onPressed: () => Navigator.of(context).pop(),
           ),
@@ -304,10 +307,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
               children: [
                 Text(
                   currentTrack?.title ?? '未在播放',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                  style: context.textStyles.titleMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w700,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -315,9 +317,8 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                 if (currentTrack?.artist != null)
                   Text(
                     currentTrack!.artist!,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 14,
+                    style: context.textStyles.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -331,7 +332,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
             icon: Icon(
               _showLyrics ? Icons.subtitles : Icons.subtitles_off_outlined,
             ),
-            color: Colors.white,
+            color: scheme.onSurface,
             tooltip: '显示/隐藏歌词 (L)',
             onPressed: () => setState(() => _showLyrics = !_showLyrics),
           ),
@@ -339,7 +340,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
           // 关闭按钮
           IconButton(
             icon: const Icon(Icons.close),
-            color: Colors.white,
+            color: scheme.onSurface,
             tooltip: '关闭 (Esc)',
             onPressed: () => Navigator.of(context).pop(),
           ),
@@ -354,23 +355,18 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     PlayerProvider player,
     PlaylistProvider playlist,
   ) {
-    // 安全获取当前曲目，防止索引越界
-    final hasValidIndex =
-        playlist.currentIndex >= 0 &&
-        playlist.currentIndex < playlist.tracks.length;
-
     return Container(
       padding: EdgeInsets.fromLTRB(
-        24,
-        16,
-        24,
-        MediaQuery.of(context).padding.bottom + 16,
+        AppSpacing.xxl,
+        AppSpacing.lg,
+        AppSpacing.xxl,
+        MediaQuery.of(context).padding.bottom + AppSpacing.lg,
       ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.bottomCenter,
           end: Alignment.topCenter,
-          colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent],
+          colors: [context.visual.scrim, Colors.transparent],
         ),
       ),
       child: Column(
@@ -386,9 +382,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                 children: [
                   Text(
                     _formatDuration(player.position),
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 12,
+                    style: context.textStyles.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -403,8 +399,8 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                           overlayRadius: 14,
                         ),
                         activeTrackColor: scheme.primary,
-                        inactiveTrackColor: Colors.white.withValues(alpha: 0.2),
-                        thumbColor: Colors.white,
+                        inactiveTrackColor: scheme.outlineVariant,
+                        thumbColor: scheme.primary,
                         overlayColor: scheme.primary.withValues(alpha: 0.2),
                       ),
                       child: Slider(
@@ -424,9 +420,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                   const SizedBox(width: 12),
                   Text(
                     _formatDuration(player.duration),
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 12,
+                    style: context.textStyles.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],
@@ -447,7 +443,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
               // 上一曲
               IconButton(
                 icon: const Icon(Icons.skip_previous_rounded, size: 32),
-                color: Colors.white,
+                color: scheme.onSurface,
                 onPressed: () async {
                   playlist.previous();
                   final current = playlist.current;
@@ -467,14 +463,15 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
               Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: scheme.primary,
-                  boxShadow: [
-                    BoxShadow(
-                      color: scheme.primary.withValues(alpha: 0.4),
-                      blurRadius: 16,
-                      spreadRadius: 2,
-                    ),
-                  ],
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      scheme.primary,
+                      Color.lerp(scheme.primary, scheme.tertiary, 0.55)!,
+                    ],
+                  ),
+                  boxShadow: AppShadows.glow(scheme.primary, alpha: 0.35),
                 ),
                 child: IconButton(
                   icon: Icon(
@@ -488,12 +485,10 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
                     if (player.isPlaying) {
                       player.pause();
                     } else {
-                      // 安全检查后再播放
-                      if (hasValidIndex && player.duration == Duration.zero) {
-                        await player.playTrack(playlist.current!);
-                      } else {
-                        player.play();
-                      }
+                      await player.playOrResume(
+                        playlist.current,
+                        playlistProvider: playlist,
+                      );
                     }
                   },
                   tooltip: player.isPlaying ? '暂停 (空格)' : '播放 (空格)',
@@ -505,7 +500,7 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
               // 下一曲
               IconButton(
                 icon: const Icon(Icons.skip_next_rounded, size: 32),
-                color: Colors.white,
+                color: scheme.onSurface,
                 onPressed: () async {
                   playlist.next();
                   final current = playlist.current;
@@ -530,65 +525,87 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
   }
 
   Widget _buildStyleSelector(ColorScheme scheme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+    final visual = context.visual;
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.55,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(
-              '样式',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.7),
-                fontSize: 12,
-              ),
-            ),
+      child: SingleChildScrollView(
+        child: Container(
+          decoration: BoxDecoration(
+            color: visual.overlay,
+            borderRadius: AppRadius.lgAll,
+            border: Border.all(color: visual.border),
+            boxShadow: AppShadows.soft(visual.shadow.withValues(alpha: 0.18)),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-            child: SizedBox(
-              width: 88,
-              child: Wrap(
-                spacing: 2,
-                runSpacing: 2,
-                children: VisualizerStyle.values.map((style) {
-                  final isSelected = style == _currentStyle;
-                  return Tooltip(
-                    message: '${style.displayName} (S)',
-                    child: InkWell(
-                      onTap: () => setState(() => _currentStyle = style),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        width: 42,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? scheme.primary.withValues(alpha: 0.3)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          style == _currentStyle
-                              ? Icons.check_rounded
-                              : style.icon,
-                          size: 18,
-                          color: isSelected
-                              ? scheme.primary
-                              : Colors.white.withValues(alpha: 0.62),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: Text(
+                  '样式',
+                  style: context.textStyles.labelMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.sm - 2,
+                  0,
+                  AppSpacing.sm - 2,
+                  AppSpacing.sm - 2,
+                ),
+                child: SizedBox(
+                  width: 88,
+                  child: Wrap(
+                    spacing: AppSpacing.xxs,
+                    runSpacing: AppSpacing.xxs,
+                    children: VisualizerStyle.values.map((style) {
+                      final isSelected = style == _currentStyle;
+                      return Tooltip(
+                        message: '${style.displayName} (S)',
+                        child: InkWell(
+                          onTap: () {
+                            setState(() => _currentStyle = style);
+                            widget.onStyleChanged?.call(style);
+                          },
+                          borderRadius: AppRadius.smAll,
+                          hoverColor: visual.hover,
+                          child: AnimatedContainer(
+                            duration: AppMotion.fast,
+                            curve: AppMotion.curve,
+                            width: 42,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? visual.selected
+                                  : Colors.transparent,
+                              borderRadius: AppRadius.smAll,
+                              border: Border.all(
+                                color: isSelected
+                                    ? scheme.primary.withValues(alpha: 0.3)
+                                    : Colors.transparent,
+                              ),
+                            ),
+                            child: Icon(
+                              isSelected ? Icons.check_rounded : style.icon,
+                              size: 18,
+                              color: isSelected
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -597,7 +614,9 @@ class _VisualizerFullscreenPageState extends State<VisualizerFullscreenPage>
     const styles = VisualizerStyle.values;
     final currentIndex = styles.indexOf(_currentStyle);
     final nextIndex = (currentIndex + 1) % styles.length;
-    setState(() => _currentStyle = styles[nextIndex]);
+    final nextStyle = styles[nextIndex];
+    setState(() => _currentStyle = nextStyle);
+    widget.onStyleChanged?.call(nextStyle);
   }
 }
 
@@ -605,10 +624,12 @@ class _FullscreenBackdropPainter extends CustomPainter {
   const _FullscreenBackdropPainter({
     required this.primary,
     required this.secondary,
+    required this.gridColor,
   });
 
   final Color primary;
   final Color secondary;
+  final Color gridColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -629,7 +650,9 @@ class _FullscreenBackdropPainter extends CustomPainter {
     }
 
     paint
-      ..color = Colors.white.withValues(alpha: 0.035)
+      ..color = gridColor.withValues(
+        alpha: gridColor.computeLuminance() > 0.5 ? 0.08 : 0.035,
+      )
       ..strokeWidth = 0.7;
     for (var i = 1; i < 8; i++) {
       final y = size.height * i / 8;
@@ -639,5 +662,7 @@ class _FullscreenBackdropPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _FullscreenBackdropPainter oldDelegate) =>
-      oldDelegate.primary != primary || oldDelegate.secondary != secondary;
+      oldDelegate.primary != primary ||
+      oldDelegate.secondary != secondary ||
+      oldDelegate.gridColor != gridColor;
 }

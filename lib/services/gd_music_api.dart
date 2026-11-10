@@ -173,6 +173,7 @@ class _ApiCache<K, V> {
   }
 
   void clear() => _data.clear();
+  void remove(K key) => _data.remove(key);
 }
 
 class _CacheEntry<V> {
@@ -360,6 +361,15 @@ class GdMusicApiClient {
       count: count,
       page: 1,
     );
+  }
+
+  /// 获取歌曲播放链接
+  void invalidateTrackUrl({
+    required String source,
+    required String id,
+    required String br,
+  }) {
+    _urlCache.remove('$source|$id|$br');
   }
 
   /// 获取歌曲播放链接

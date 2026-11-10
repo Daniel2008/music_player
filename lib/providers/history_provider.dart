@@ -12,6 +12,8 @@ class HistoryProvider extends ChangeNotifier {
   static const String _fileName = 'play_history.json';
   static const int _schemaVersion = 1;
   Timer? _saveDebounce;
+  bool _dirty = false;
+  Future<void>? _pendingSave;
   late final Future<void> ready;
 
   List<Track> get history => _history;
@@ -60,16 +62,30 @@ class HistoryProvider extends ChangeNotifier {
 
   /// 防抖保存，避免频繁写盘
   void _saveHistory() {
+    _dirty = true;
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 500), _doSave);
+    _saveDebounce = Timer(const Duration(milliseconds: 500), () {
+      unawaited(_doSave().catchError((Object e) => debugPrint('后台保存失败: $e')));
+    });
   }
 
   Future<void> _doSave() async {
-    await StorageService.instance.writeJsonFile(
+    if (!_dirty) {
+      await _pendingSave;
+      return;
+    }
+    _dirty = false;
+    _pendingSave = StorageService.instance.writeJsonFile(
       fileName: _fileName,
       currentSchemaVersion: _schemaVersion,
       encode: () => _history.map((t) => t.toJson()).toList(),
     );
+    try {
+      await _pendingSave;
+    } catch (_) {
+      _dirty = true;
+      rethrow;
+    }
   }
 
   Future<void> _loadHistory() async {
@@ -94,12 +110,15 @@ class HistoryProvider extends ChangeNotifier {
 
   Future<void> flush() async {
     _saveDebounce?.cancel();
-    await _doSave();
+    await ready;
+    do {
+      await _doSave();
+    } while (_dirty);
   }
 
   @override
   void dispose() {
-    unawaited(flush());
+    unawaited(flush().catchError((Object e) => debugPrint('退出保存失败: $e')));
     super.dispose();
   }
 }
